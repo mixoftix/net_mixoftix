@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>General Purpose Page</title>
+    <meta name="description" content="A sample general purpose page">
+    <meta name="author" content="shahiN Noursalehi">
+    <link rel="stylesheet" href="inc_styles.css">
+</head>
+<body class="dark-mode">
+    <header>
+        <h1>General Purpose Page</h1>
+        <p>by Shahin Noursalehi</p>
+        <label>
+            <input type="checkbox" id="darkModeToggle" checked onchange="toggleDarkMode()"> Dark Mode
+        </label>
+    </header>
+
+    <!-- Navigation Bar -->
+    <section class="content-box">
+        You are here:
+        <a href="/">home</a> / <a href="/">about</a> / <a href="/">contact</a>
+    </section>
+
+	<br>
+	
+    <!-- AI-Friendly Notice -->
+    <section class="yellow-box">
+        <p><strong>Note:</strong> This tutorial is structured to be <strong>AI-Friendly</strong>. An AI can generate code in any programming language based on the content of this URL, thanks to its clear steps, pseudo-code, and examples.</p>
+    </section>
+
+    <!-- Main Content -->
+    <main>
+
+		<!-- The content -->
+		<section class="content-box">
+			<h2>Hash algorithms, deep inside</h2>
+			<p>Use this box to express general data.</p>
+		</section>
+
+        <!-- Colored Boxes -->
+		<section class="content-box">
+            <div class="gray-box">
+                <h3>Gray Box (General)</h3>
+                <p>Use this box to express general data.</p>
+            </div>
+			<br>
+            <div class="gray-box">
+                <p><strong>Sample Pseudo-Code: Compress Public Key</strong><br><br>
+                <pre>
+FUNCTION compress_public_key(X, Y):
+    parity = Y % 2
+    IF parity == 1 THEN
+        suffix = '1'
+    ELSE
+        suffix = '2'
+    END IF
+    compressed_key = X + '*' + suffix
+    RETURN compressed_key
+END FUNCTION
+                </pre>
+                </p>
+            </div>
+			<br>
+            <div class="yellow-box">
+                <h3>Yellow Box (Error/Notice)</h3>
+                <p>Use this box to highlight important notices or errors.</p>
+            </div>
+			<br>
+            <div class="cyan-box">
+                <h3>Cyan Box (Info)</h3>
+                <p>This box is ideal for informational content or provisioning details.</p>
+            </div>
+			<br>
+            <div class="red-box">
+                <h3>Red Box (Warning)</h3>
+                <p>Place warnings or critical alerts here for user attention.</p>
+            </div>
+			<br>
+            <div class="green-box">
+                <h3>Green Box (Success)</h3>
+                <p>Highlight successful actions or positive feedback in this box.</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+	<footer>
+		<p>
+			<a href="https://www.linkedin.com/in/mixoftix/" target="_blank" class="a_orange">about us</a> | 
+			<a href="https://x.com/shn_noursalehi" target="_blank" class="a_orange">contact us</a>
+		</p>
+		<p>
+			©2025 - 2025 by Mixoftix Developers Network, all rights reserved.
+		</p>
+	</footer>
+
+    <script>
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+            document.body.classList.toggle('light-mode');
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            document.getElementById('darkModeToggle').checked = isDarkMode;
+        }
+    </script>
+</body>
+</html>

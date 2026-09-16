@@ -1,0 +1,223 @@
+public string airdrop_calculator(
+	string from_tnx_id,
+	string to_tnx_id,
+	string wallet_active_quarter_percent,
+	string wallet_active_percent,
+	string wallet_holder_percent,
+	string total_airdrop_units)
+{
+	StringBuilder log = new StringBuilder();
+	log.AppendLine("=== Airdrop Calculation Log ===");
+
+	try
+	{
+		// Step 1: Parse and validate inputs
+		if (!decimal.TryParse(from_tnx_id, out decimal parsed_from_tnx_id))
+			throw new ArgumentException("Invalid format for from_tnx_id.");
+		if (!decimal.TryParse(to_tnx_id, out decimal parsed_to_tnx_id))
+			throw new ArgumentException("Invalid format for to_tnx_id.");
+		if (!decimal.TryParse(wallet_active_quarter_percent, out decimal parsed_wallet_active_quarter_percent))
+			throw new ArgumentException("Invalid format for wallet_active_quarter_percent.");
+		if (!decimal.TryParse(wallet_active_percent, out decimal parsed_wallet_active_percent))
+			throw new ArgumentException("Invalid format for wallet_active_percent.");
+		if (!decimal.TryParse(wallet_holder_percent, out decimal parsed_wallet_holder_percent))
+			throw new ArgumentException("Invalid format for wallet_holder_percent.");
+		if (!decimal.TryParse(total_airdrop_units, out decimal parsed_total_airdrop_units))
+			throw new ArgumentException("Invalid format for total_airdrop_units.");
+
+		if (parsed_total_airdrop_units <= 0)
+			throw new ArgumentException("Total airdrop units must be positive.");
+		if (parsed_wallet_active_quarter_percent + parsed_wallet_active_percent + parsed_wallet_holder_percent != 100)
+			throw new ArgumentException("Percentages must sum to 100.");
+		if (parsed_from_tnx_id > parsed_to_tnx_id)
+			throw new ArgumentException("from_tnx_id must be less than or equal to to_tnx_id.");
+
+		log.AppendLine("Step 1: Input Parameters");
+		log.AppendLine($"  from_tnx_id: {parsed_from_tnx_id:F8}");
+		log.AppendLine($"  to_tnx_id: {parsed_to_tnx_id:F8}");
+		log.AppendLine($"  wallet_active_quarter_percent: {parsed_wallet_active_quarter_percent:F8}");
+		log.AppendLine($"  wallet_active_percent: {parsed_wallet_active_percent:F8}");
+		log.AppendLine($"  wallet_holder_percent: {parsed_wallet_holder_percent:F8}");
+		log.AppendLine($"  total_airdrop_units: {parsed_total_airdrop_units:F8}");
+
+		// Step 2: Distribute total_airdrop_units across sections
+		decimal active_quarter_units = parsed_total_airdrop_units * (parsed_wallet_active_quarter_percent / 100);
+		decimal active_units = parsed_total_airdrop_units * (parsed_wallet_active_percent / 100);
+		decimal holder_units = parsed_total_airdrop_units * (parsed_wallet_holder_percent / 100);
+
+		log.AppendLine("Step 2: Distributed Units");
+		log.AppendLine($"  Active Quarter Units: {active_quarter_units:F8}");
+		log.AppendLine($"  Active Units: {active_units:F8}");
+		log.AppendLine($"  Holder Units: {holder_units:F8}");
+
+		// Database connection string
+		string connectionString = System.IO.File.ReadAllText(HttpContext.Current.Server.MapPath("~/") + "\\" + "CnString.txt");
+
+		// Dictionaries to store wallet data
+		Dictionary<string, decimal> holder_wallets = new Dictionary<string, decimal>();
+		Dictionary<string, decimal> active_wallets = new Dictionary<string, decimal>();
+		Dictionary<string, decimal> active_quarter_wallets = new Dictionary<string, decimal>();
+
+		using (SqlConnection conn = new SqlConnection(connectionString))
+		{
+			conn.Open();
+
+			// Step 3: Read tbl_tallybox_wallet for holder wallets
+			string holderQuery = "SELECT the_wallet FROM tbl_tallybox_wallet";
+			using (SqlCommand cmd = new SqlCommand(holderQuery, conn))
+			using (SqlDataReader reader = cmd.ExecuteReader())
+			{
+				while (reader.Read())
+				{
+					string wallet = reader["the_wallet"].ToString();
+					if (!string.IsNullOrEmpty(wallet))
+						holder_wallets[wallet] = 0; // Initialize with 0
+				}
+			}
+
+			// Step 4: Read tbl_tallybox_wallet_pubkey for active wallets
+			string activeQuery = @"
+			SELECT DISTINCT w.the_wallet
+			FROM tbl_tallybox_wallet_pubkey wp
+			JOIN tbl_tallybox_wallet w ON wp.wallet_id = w.wallet_id";
+			using (SqlCommand cmd = new SqlCommand(activeQuery, conn))
+			using (SqlDataReader reader = cmd.ExecuteReader())
+			{
+				while (reader.Read())
+				{
+					string wallet = reader["the_wallet"].ToString();
+					if (!string.IsNullOrEmpty(wallet))
+						active_wallets[wallet] = 0; // Initialize with 0
+				}
+			}
+
+			// Step 5: Read tbl_tallybox_book_archive_2 for active quarter wallets (sender transactions)
+			string activeQuarterQuery = @"
+			SELECT DISTINCT w.the_wallet
+			FROM tbl_tallybox_book_archive_2 ba
+			JOIN tbl_tallybox_wallet w ON ba.wallet_id = w.wallet_id
+			WHERE ba.tnx_id_dag BETWEEN @from_tnx_id AND @to_tnx_id
+			AND ba.tnx_type = 1";
+			using (SqlCommand cmd = new SqlCommand(activeQuarterQuery, conn))
+			{
+				cmd.Parameters.AddWithValue("@from_tnx_id", parsed_from_tnx_id);
+				cmd.Parameters.AddWithValue("@to_tnx_id", parsed_to_tnx_id);
+				using (SqlDataReader reader = cmd.ExecuteReader())
+				{
+					while (reader.Read())
+					{
+						string wallet = reader["the_wallet"].ToString();
+						if (!string.IsNullOrEmpty(wallet))
+							active_quarter_wallets[wallet] = 0; // Initialize with 0
+					}
+				}
+			}
+
+			conn.Close();
+		}
+
+		log.AppendLine("Step 3-5: Wallet Counts");
+		log.AppendLine($"  Active Quarter Wallets: {active_quarter_wallets.Count}");
+		log.AppendLine($"  Active Wallets: {active_wallets.Count}");
+		log.AppendLine($"  Holder Wallets: {holder_wallets.Count}");
+
+		// Step 6: Divide airdrop units by record counts
+		decimal active_quarter_per_wallet = active_quarter_wallets.Count > 0 ? active_quarter_units / active_quarter_wallets.Count : 0;
+		decimal active_per_wallet = active_wallets.Count > 0 ? active_units / active_wallets.Count : 0;
+		decimal holder_per_wallet = holder_wallets.Count > 0 ? holder_units / holder_wallets.Count : 0;
+
+		log.AppendLine("Step 6: Per-Wallet Amounts");
+		log.AppendLine($"  Active Quarter Per Wallet: {active_quarter_per_wallet:F8}");
+		log.AppendLine($"  Active Per Wallet: {active_per_wallet:F8}");
+		log.AppendLine($"  Holder Per Wallet: {holder_per_wallet:F8}");
+
+		// Assign airdrop amounts to wallets
+		foreach (var wallet in active_quarter_wallets.Keys.ToList())
+			active_quarter_wallets[wallet] = active_quarter_per_wallet;
+		foreach (var wallet in active_wallets.Keys.ToList())
+			active_wallets[wallet] = active_per_wallet;
+		foreach (var wallet in holder_wallets.Keys.ToList())
+			holder_wallets[wallet] = holder_per_wallet;
+
+		// Step 7: Combine airdrops, summing amounts for wallets in multiple sections
+		Dictionary<string, decimal> final_airdrop = new Dictionary<string, decimal>();
+		foreach (var wallet in active_quarter_wallets)
+		{
+			if (!final_airdrop.ContainsKey(wallet.Key))
+				final_airdrop[wallet.Key] = 0;
+			final_airdrop[wallet.Key] += wallet.Value;
+		}
+		foreach (var wallet in active_wallets)
+		{
+			if (!final_airdrop.ContainsKey(wallet.Key))
+				final_airdrop[wallet.Key] = 0;
+			final_airdrop[wallet.Key] += wallet.Value;
+		}
+		foreach (var wallet in holder_wallets)
+		{
+			if (!final_airdrop.ContainsKey(wallet.Key))
+				final_airdrop[wallet.Key] = 0;
+			final_airdrop[wallet.Key] += wallet.Value;
+		}
+
+		// Calculate total distributed units
+		decimal total_distributed = final_airdrop.Values.Sum();
+
+		// Generate dynamic breakdown for Total Distributed
+		var groupedByAmount = final_airdrop
+			.GroupBy(w => w.Value)
+			.Select(g => new { Amount = g.Key, Count = g.Count() })
+			.OrderByDescending(g => g.Amount)
+			.ToList();
+
+		StringBuilder breakdown = new StringBuilder("  Total Distributed:\n");
+		string breakdownFormula = "";
+		string breakdownSums = "";
+		decimal calculatedTotal = 0;
+		foreach (var group in groupedByAmount)
+		{
+			decimal groupTotal = group.Count * group.Amount;
+			breakdownFormula += $"{group.Count} * {group.Amount:F8} + ";
+			breakdownSums += $"{groupTotal:F8} + ";
+			calculatedTotal += groupTotal;
+		}
+		// Remove trailing " + "
+		if (breakdownFormula.Length > 0)
+			breakdownFormula = breakdownFormula.Substring(0, breakdownFormula.Length - 3);
+		if (breakdownSums.Length > 0)
+			breakdownSums = breakdownSums.Substring(0, breakdownSums.Length - 3);
+
+		breakdown.Append($"    {breakdownFormula} = {breakdownSums} = {calculatedTotal:F8} ");
+		breakdown.Append($"(exact match with log).");
+
+		log.AppendLine("Step 7: Final Airdrop");
+		log.AppendLine($"  Total Wallets: {final_airdrop.Count}");
+		log.AppendLine($"  Total Distributed Units: {total_distributed:F8}");
+		log.AppendLine(breakdown.ToString());
+		log.AppendLine("=== End of Log ===");
+		log.AppendLine(""); // Add blank line for separation
+
+		// Step 8: Generate output string
+		StringBuilder output = new StringBuilder();
+		output.Append(log.ToString()); // Prepend log
+		output.AppendLine("=== Airdrop Output ===");
+		output.AppendLine("tallybox~parcel_of_transactions~");
+
+		int walletIndex = 1;
+		foreach (var wallet in final_airdrop)
+		{
+			output.AppendLine($"wallet_to_{walletIndex}~{wallet.Key}~order_amount_{walletIndex}~{wallet.Value:F8}~");
+			walletIndex++;
+		}
+
+		return output.ToString();
+	}
+	catch (Exception ex)
+	{
+		// Log the exception as needed
+		log.AppendLine($"Error: {ex.Message}");
+		log.AppendLine("=== End of Log ===");
+		return log.ToString() + "\nError: " + ex.Message;
+	}
+}
+

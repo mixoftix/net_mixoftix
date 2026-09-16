@@ -1,0 +1,71 @@
+=== Airdrop Calculation Log ===
+Step 1: Input Parameters
+  from_tnx_id: 0.00000000
+  to_tnx_id: 1746260630.10000000
+  wallet_active_quarter_percent: 50.00000000
+  wallet_active_percent: 30.00000000
+  wallet_holder_percent: 20.00000000
+  total_airdrop_units: 2000000.00000000
+Step 2: Distributed Units
+  Active Quarter Units: 1000000.00000000
+  Active Units: 600000.00000000
+  Holder Units: 400000.00000000
+Step 3-5: Wallet Counts
+  Active Quarter Wallets: 17
+  Active Wallets: 17
+  Holder Wallets: 42
+Step 6: Per-Wallet Amounts
+  Active Quarter Per Wallet: 58823.52941176
+  Active Per Wallet: 35294.11764706
+  Holder Per Wallet: 9523.80952381
+Step 7: Final Airdrop
+  Total Wallets: 42
+  Total Distributed Units: 2000000.00000000
+  Total Distributed:
+    17 * 103641.45658263 + 25 * 9523.80952381 = 1761904.76190476 + 238095.23809524 = 2000000.00000000 (exact match with log).
+=== End of Log ===
+
+=== Airdrop Output ===
+tallybox~parcel_of_transactions~
+wallet_to_1~boxB2e7517135fa2awY4VXxrhjVMEvyz8HZV8fTotJHf4aX5nHzpEiPJuPb~order_amount_1~103641.45658263~
+wallet_to_2~boxB2bbc15c8c135W8PzPEZf98cEu2h2muhkeJQS3MwTYUaTHVkFTgihcS7~order_amount_2~103641.45658263~
+wallet_to_3~boxBb204ed5532bBBSKpN5AoAyt664XDmgb7S27kBNWQMrwKBr8zX8nwVAk~order_amount_3~103641.45658263~
+wallet_to_4~boxB1aa2b2068aa6kseRgK8BffbGRyxuwGS5pCFJz7SehKkTmRXkQtTQC5p~order_amount_4~103641.45658263~
+wallet_to_5~boxBb4c7235dbe3F4cs3anMGc3igAbgocFToo3ySAyPa3yb8JGDWwWRqAQ6~order_amount_5~103641.45658263~
+wallet_to_6~boxB173a76e70e788h1ZH4wxVzyvoGu426GxZEt9H23LbitMtW8VgJqre2E~order_amount_6~103641.45658263~
+wallet_to_7~boxBb70ca863018E1kUuzNqPtagT2QgRcN1PCiik6KUgCjFj95GEP4ojxV2~order_amount_7~103641.45658263~
+wallet_to_8~boxBff9b94f6471HQTnUgStoT5gwUkJLiVUWQbXkTcjqshqkD94vSTymkhF~order_amount_8~103641.45658263~
+wallet_to_9~boxBf1a0888b82fFH1xr5oJTe7NkuHzaQKk6wHcWnttegnCMkmuTBqkmGzB~order_amount_9~103641.45658263~
+wallet_to_10~boxB9289504018d7tJQSWWFxjVX3ncAfru7yUX3bRGeGWA8qUiwDKycuhe2~order_amount_10~103641.45658263~
+wallet_to_11~boxB474367e16eeC8yyFNpm14A1YZuYK15Fy3izaeJABTAYD5Jz87QPW5fd~order_amount_11~103641.45658263~
+wallet_to_12~boxBd0e08436d01CSjqsUPgP9uamYUYsPFv6NyzvLfHGMBXmuubEp8MdZdz~order_amount_12~103641.45658263~
+wallet_to_13~boxBbaeb2f740dcCdXSs39HkHnKcza7fLjoQXNao7w5NuxGamWdMSXz4PiF~order_amount_13~103641.45658263~
+wallet_to_14~boxBaeff14ed861GH4ZkjNpj5nM5Gy4QwW3HEj1s6kmZTqG3tBkzj8d39k5~order_amount_14~103641.45658263~
+wallet_to_15~boxB1aab18e1d8fC1VwcoFdhqqixcHaFHYMFUiNLX6wEEqcRrRPHqH8VSZb~order_amount_15~103641.45658263~
+wallet_to_16~boxBd3feaa48ec185FQ7NyczLveCfknufNMF8NsJG2DtK5jMvTU9YpUWSDM~order_amount_16~103641.45658263~
+wallet_to_17~boxBa4318f31a018e3BfnL7dKm647G4e5EqxzfxfYoBYzwXi7wnEB3eh6d3~order_amount_17~103641.45658263~
+wallet_to_18~boxB2bed2b86f9f3aaAPVMouq3vieWv1XjWmWNufM6rc6dpxRJfikGtKvfJ~order_amount_18~9523.80952381~
+wallet_to_19~boxBbd6fef57bf0EXbp419xRp1EiD2hYAZ9j1mNz5C29TZAy4Aqe3asgWuJ~order_amount_19~9523.80952381~
+wallet_to_20~boxB95ed4e98f8dFEsK6eyzjYBi1p9cn11S8nhi99JSp93xgRLKwGyGDxNt~order_amount_20~9523.80952381~
+wallet_to_21~boxB91db2868eacGFfdchA5xS8AzGaBeNiqHtZSPXQdwVaGT3xGoHj1bvc5~order_amount_21~9523.80952381~
+wallet_to_22~boxB316b83336609QjXdudvRwayoAYeanbVEPpwf1Ak7e6qo7bwamzNZwny~order_amount_22~9523.80952381~
+wallet_to_23~boxB12034bcbbe85RA9MKkaMrptktWZzogXSJdjFDi8uVbXouKoLyf4AFYS~order_amount_23~9523.80952381~
+wallet_to_24~boxB5d6bffecbc7etQ6bC1P9Hkr8MtMVKhJr4aJQQQz2ZSKCgNP6mCVXon~order_amount_24~9523.80952381~
+wallet_to_25~boxB3300c3324638fHeqhWKMg6SKfKHoNpYEoZt81Bh2RoWhVfqGYjW4aCz~order_amount_25~9523.80952381~
+wallet_to_26~boxB38d66f4e5ebAf7e3bPSMYJZNcJjZj6oyTvXZmcDFuzK5xM1ez8pMfgd~order_amount_26~9523.80952381~
+wallet_to_27~boxB6796ee43f6e2KhTvXYTyY2QmxY2eBaofUjwsffiW3z84ABzR1pPTjdd~order_amount_27~9523.80952381~
+wallet_to_28~boxBa8857681af3BkTXFqKo9kjP4JP2tqpS3rr3yo8rFkURj914qkJ5sXLJ~order_amount_28~9523.80952381~
+wallet_to_29~boxBe63b0713c585L6JES4MwxGKsNJ2v8Ao27VYJG8yBdKs7yEuZiRYHmmp~order_amount_29~9523.80952381~
+wallet_to_30~boxB897c1ca0f017y5FyY74b5ZQSScwcwGSS12ohgpQvKrsCvxZtT6SCoLK~order_amount_30~9523.80952381~
+wallet_to_31~boxBdd2c40e3c1aGoa1DcpZEEcrntibe2hvqGEcphB6KjB74KcHnfZGBSUD~order_amount_31~9523.80952381~
+wallet_to_32~boxB91567dacc308YCUf6mPcMC2insLdyvz3xaRLWAn2smRBwozTwJ2PxdE~order_amount_32~9523.80952381~
+wallet_to_33~boxB8cdc556b13e3SKpDaMC486KjEEE34MHuSo3a5RodmrcxqvS1146KJCL~order_amount_33~9523.80952381~
+wallet_to_34~boxB721b851cd00HEVUc1zszLBDrFHsJnYi2JKCUgCdUx7N3ACoPcpEhuS9~order_amount_34~9523.80952381~
+wallet_to_35~boxBebd4c6d47d88wDrf487xfV7yEpmeHtk9g6cmMzPBFfaPvxSoL5PgyXz~order_amount_35~9523.80952381~
+wallet_to_36~boxB94b25941bd63gfH6vNLCR7xBpuQZjvVDyobxWyjryLgZSUrbyBWx8pN~order_amount_36~9523.80952381~
+wallet_to_37~boxB75bfed73504DMPe9r7udd1dXCVMGKM3MZAz2BdXaEdyNZzMcCXZdXzA~order_amount_37~9523.80952381~
+wallet_to_38~boxBd0a4e9ff930BduZmMG6NuiEEgNeAr5y5fVcyDx4Uhwf1mAzy6DMTQnx~order_amount_38~9523.80952381~
+wallet_to_39~boxB4033ab59c4e5c3rDnBDToqjqyTKqEN6iF1FUapTJgSD16hGpbUy5C7K~order_amount_39~9523.80952381~
+wallet_to_40~boxBcade8d91647FMViRBJtuL7ZpBaaTyZcB5a7Fo81Prdo3HBpnu8dtCmb~order_amount_40~9523.80952381~
+wallet_to_41~boxB6f5272588b74opfSrxkTE5TP2ztJLsrQ7e1bZFuZ95VLbvcuxf5VDu4~order_amount_41~9523.80952381~
+wallet_to_42~boxB2ba9be20e45A3TCHpmejczbmVeRPKBoEyhSd3qRcw5ythhMKjt8xgqo~order_amount_42~9523.80952381
