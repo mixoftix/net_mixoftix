@@ -6,7 +6,12 @@
 			<a href="https://x.com/shn_noursalehi" target="_blank" class="a_orange">contact us</a>
 		</p>
 		<p>
-			©2025 - 2025 by Mixoftix Developers Network, all rights reserved.
+			Website's root content is availale in 
+			<a href="https://github.com/mixoftix/net_mixoftix" target="_blank" class="a_orange">GitHub</a>			
+			for academic review under a restricted audit-‑only license.
+		</p>
+		<p>
+			©2004 - 2025 by Mixoftix Developers Network, all rights reserved.
 		</p>
 	</footer>
 

@@ -7,7 +7,6 @@
     <title>MixofTix Developers Network</title>
     <meta name="description" content="for curious minds">
     <meta name="author" content="shahiN Noursalehi">
-
 	<!--#INCLUDE virtual="/inc_styles.asp"-->
 </head>
 <body class="dark-mode">

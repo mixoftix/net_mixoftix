@@ -1,3 +1,5 @@
+<link rel="icon" href="/net_mixoftix_favicon.ico">	
+
 <style>
 
 /* Base styles */
