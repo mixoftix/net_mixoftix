@@ -645,7 +645,7 @@
 			let target = amount;
 			if (truncate && target > 1_000_000) {
 				target = 1_000_000;
-				document.getElementById("genAmount").value = 1000000;
+				//document.getElementById("genAmount").value = 1000000;
 			}
 		
 			let symbols = [];
