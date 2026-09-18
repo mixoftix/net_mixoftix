@@ -366,10 +366,16 @@
         <!-- Input Section -->
         <table border="1" class="utxoTable">
             <tr>
-                <th colspan="2" class="miner-header">Input Sequence of Bitstreams</th>
+                <th colspan="2" class="miner-header">Input Sequence</th>
             </tr>
             <tr>
                 <td colspan="2" style="text-align:left; padding:12px;">
+					<div class="input-container" style="justify-content:flex-start;">
+						<span>Sequence Type:</span>
+						<label><input type="radio" name="sequenceType" value="bit" checked> Bit (0/1)</label>
+						<label><input type="radio" name="sequenceType" value="dice"> Dice (1-6)</label>
+						<label><input type="radio" name="sequenceType" value="hex"> Hex (0-9A-F)</label>
+					</div>
                     <div class="input-container" style="justify-content:flex-start;">
                         <span>Entropy Type:</span>
                         <label><input type="radio" name="entropyType" value="verypoor"> Very Poor</label>
@@ -396,38 +402,48 @@
                         </select>
                     </div>
                     <div class="input-container" style="justify-content:flex-start; margin-top:10px;">
-                        <label for="genAmount">Bits:</label>
-                        <input id="genAmount" type="number" min="1" value="1000" style="width:120px;">
-                        <button id="generateBtn" class="control-btn primary">Generate Random Bitstream</button>
+						<!-- generation amount -->
+						<label for="genAmount">Symbols:</label>
+						<input id="genAmount" type="number" min="1" value="1000" style="width:120px;">
+						<button id="generateBtn" class="control-btn primary">Generate Random Sequence</button>
                     </div>
 
                 </td>
             </tr>
             <tr>
                 <td colspan="2" style="text-align:left; padding:12px;">
-                    <label for="bitsInput">Random bit sequence (Binary 0/1 only)</label><br>
-                    <textarea id="bitsInput" placeholder="Paste your RNG output here as a continuous 0/1 string (e.g. 00110101...)"></textarea>
+					<!-- textarea -->
+					<label for="bitsInput" id="sequenceLabel">Random sequence</label><br>
+					<textarea id="bitsInput" placeholder="Paste your sequence here…"></textarea>					
+					<br>
+					<!-- textarea -->
+					<label for="bitsConverted" id="bitsConvertedLabel">Converted sequence</label><br>
+					<textarea id="bitsConverted" placeholder=""></textarea>					
                 </td>
             </tr>
             <tr>
                 <td style="text-align:left; padding:12px;">
                     <label style="display:inline-flex; align-items:center; gap:6px;">
                         <input type="checkbox" id="truncateCheckbox" checked>
-                        Truncate to first 1'000'000 samples
+                        Truncate to first 1'000'000 symbols
                     </label>
                     <br><br>
                     <label for="fileInput">File:</label>
                     <input id="fileInput" type="file">
                 </td>
                 <td style="text-align:center; padding:12px;">
-                    <span class="pill"><strong id="bitCount">0</strong> bits detected</span><br>
+					<!-- count display -->
+					<span class="pill"><strong id="bitCount">0</strong> symbols detected
+						<span id="bitDerived" style="opacity:0.7;"></span>
+					</span>
                     <span class="pill">Timeout per test: <strong id="timeoutLabel">5 s</strong></span>
                 </td>
             </tr>
             <tr>
                 <td colspan="2" style="padding:12px;">
                     <div class="input-container">
-                        <button id="analyzeBtn" class="control-btn primary">Evaluate Random Bitstream</button>
+						<!-- buttons -->
+						<button id="analyzeBtn" class="control-btn primary">Evaluate Sequence</button>
                         <button id="clearBtn" class="control-btn">Clear</button>
                     </div>
                 </td>
@@ -510,6 +526,8 @@
 
 		// --- DOM references -----------------------------------------------------
 		const bitsInput = document.getElementById("bitsInput");
+		const bitsConverted = document.getElementById("bitsConverted");
+
 		const fileInput = document.getElementById("fileInput");
 		const bitCountLabel = document.getElementById("bitCount");
 		const analyzeBtn = document.getElementById("analyzeBtn");
@@ -525,7 +543,69 @@
 		let results_for_explain = {};
 
 		// --- Helpers --------------------------------------------------------
+		function getSequenceType() {
+			return document.querySelector("input[name='sequenceType']:checked").value;
+		}
+		
+		function normalizeSymbols(text, type) {
+			if (!text) return "";
+			if (type === "bit")  return text.replace(/[^01]/g, "");
+			if (type === "dice") return text.replace(/[^1-6]/g, "");
+			if (type === "hex")  return text.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+			return "";
+		}
+		
+		function symbolsToBits(symbols, type) {
+			if (type === "bit") {
+				return symbols;                          // already 0/1
+			}
+		
+			if (type === "hex") {
+				let bits = "";
+				for (const c of symbols) {
+					const v = parseInt(c, 16);
+					bits += v.toString(2).padStart(4, "0");
+				}
+				return bits;
+			}
+		
+			if (type === "dice") {
+				// Simple unbiased even/odd mapping (1 bit per die)
+				// 1,3,5 → 0
+				// 2,4,6 → 1
+				let bits = "";
+				for (const c of symbols) {
+					const v = parseInt(c, 10) - 1;       // 0..5
+					bits += (v & 1) ? "1" : "0";
+				}
+				return bits;
+			}
+		
+			return "";
+		}
+		
+		function updateSequenceUI() {
+			const type = getSequenceType();
+			const label = document.getElementById("sequenceLabel");
+			const ta   = document.getElementById("bitsInput");
+		
+			if (type === "bit") {
+				label.textContent = "Random sequence (Binary 0/1 only)";
+				ta.placeholder = "Paste binary 0/1 string (e.g. 00110101…)";
+			} else if (type === "dice") {
+				label.textContent = "Random sequence (Dice faces 1-6 only)";
+				ta.placeholder = "Paste dice faces (e.g. 351264…)";
+			} else {
+				label.textContent = "Random sequence (Hex 0-9A-F only)";
+				ta.placeholder = "Paste hex string (e.g. A3F91C…)";
+			}
+			updateSymbolCount();
+		}
+
 		function clearAll() {
+			bitsInput.value = "";
+			bitsConverted.value = "";
+
 			resultsBody.innerHTML = ""; // clear
 			document.getElementById("meaningBody").innerHTML = '';
 		}
@@ -539,85 +619,255 @@
 		}
 
 		// --- BitStreams --------------------------------------------------------
+		document.querySelectorAll("input[name='sequenceType']").forEach(rb => {
+			rb.addEventListener("change", () => {
+				// re-normalize current content
+				bitsInput.value = normalizeSymbols(bitsInput.value, getSequenceType());
+				updateSequenceUI();
+				clearAll();
+			});
+		});
 		document.querySelectorAll("input[name='entropyType']").forEach(rb => {
 			rb.addEventListener("change", () => {
 				const type = document.querySelector("input[name='entropyType']:checked").value;
-				badRngContainer.style.display = (type === "bad") ? "block" : "none";
+				//badRngContainer.style.display = (type === "bad") ? "block" : "none";
 			});
 		});
+
 		document.getElementById("generateBtn").addEventListener("click", async () => {
-			const amount = parseInt(document.getElementById("genAmount").value, 10);
-			const entropyType = document.querySelector("input[name='entropyType']:checked").value;
+			const amount = parseInt(document.getElementById("genAmount").value, 10) || 1000;
+			const sequenceType = getSequenceType();          // "bit" | "dice" | "hex"
+			const whiteningType = document.getElementById("whiteningSelect").value;
 			const truncate = document.getElementById("truncateCheckbox").checked;
-
+		
 			clearAll();
-
-			// Decide how many bits we will actually generate
+		
 			let target = amount;
 			if (truncate && target > 1_000_000) {
 				target = 1_000_000;
 				document.getElementById("genAmount").value = 1000000;
 			}
-
-			let bits = [];   // ALWAYS an array
-
-			const whiteningType = document.getElementById("whiteningSelect").value;
-
+		
+			let symbols = [];
+		
+			// ---------- small helpers ----------
+			function randomSymbol() {
+				if (sequenceType === "bit")  return main_random() < 0.5 ? "0" : "1";
+				if (sequenceType === "dice") return String(Math.floor(main_random() * 6) + 1);
+				// hex
+				return Math.floor(main_random() * 16).toString(16).toUpperCase();
+			}
+		
+			function pushFromUint32(x) {
+				// Turn one 32-bit value into as many symbols as possible
+				if (sequenceType === "bit") {
+					for (let i = 31; i >= 0 && symbols.length < target; i--) {
+						symbols.push(((x >>> i) & 1) ? "1" : "0");
+					}
+				} else if (sequenceType === "dice") {
+					// rejection sampling for fairness
+					for (let i = 0; i < 10 && symbols.length < target; i++) {
+						const v = (x >>> (i * 3)) & 7; // 0..7
+						if (v < 6) symbols.push(String(v + 1));
+					}
+				} else { // hex
+					for (let i = 7; i >= 0 && symbols.length < target; i--) {
+						const nibble = (x >>> (i * 4)) & 0xf;
+						symbols.push(nibble.toString(16).toUpperCase());
+					}
+				}
+			}
+		
+			// ---------- Whitening modes (faithful to the original functions) ----------
 			switch (whiteningType) {
-				// Bad look, bad RNGs.
-				case "none": bits = generateDirectBits(target); break;
-				case "periodic": bits = generatePeriodicBits(target); break;
-				case "lowentropy": bits = generateLowEntropyBits(target); break;
-				// Good look, bad RNGs..
-				case "weakhash": bits = generateWeakHashBits(target); break;
-				case "prnghash": bits = generateHashCounterBits(target); break;
-				case "onebiased": bits = generateBiasedBits(target); break;
-				case "hiddenbiased": bits = generateHiddenBiasBits(target); break;
-				case "xorshift": bits = generateXORShiftBits(target); break;
-				// Good look, good RNGs - but totally fake!
-				case "xorweak": bits = generateXORWeakBits(target); break;
-				case "fakeaes": bits = generateFakeAESBits(target); break;
-				case "fakechacha": bits = generateFakeChaChaBits(target); break;
-			}
-
-			/*
-			// Simple RNG
-			for (let i = 0; i < target; i++) {
-				bits.push(Math.random() < 0.5 ? "0" : "1");
-			}
-
-			// Crypto RNG (chunked)
-			const chunkBytes = 4096;
-			let remaining = target;
-
-			while (remaining > 0) {
-				const bytesToGen = Math.min(chunkBytes, Math.ceil(remaining / 8));
-				const buf = new Uint8Array(bytesToGen);
-				crypto.getRandomValues(buf);
-
-				for (let i = 0; i < buf.length && bits.length < target; i++) {
-					const byte = buf[i];
-					bits.push((byte >> 7) & 1 ? "1" : "0");
-					bits.push((byte >> 6) & 1 ? "1" : "0");
-					bits.push((byte >> 5) & 1 ? "1" : "0");
-					bits.push((byte >> 4) & 1 ? "1" : "0");
-					bits.push((byte >> 3) & 1 ? "1" : "0");
-					bits.push((byte >> 2) & 1 ? "1" : "0");
-					bits.push((byte >> 1) & 1 ? "1" : "0");
-					bits.push((byte >> 0) & 1 ? "1" : "0");
+		
+				// 0. Direct / raw  (old generateDirectBits)
+				case "none": {
+					// Faithful to the old generateDirectBits
+					// → only 1 symbol per call to main_random() (preserves weakness of veryPoor/poor)
+					while (symbols.length < target) {
+						const x = (main_random() * 0xffffffff) >>> 0;
+				
+						if (sequenceType === "bit") {
+							symbols.push((x & 1) ? "1" : "0");
+						}
+						else if (sequenceType === "dice") {
+							// still use rejection for fairness
+							const v = x & 7;
+							if (v < 6) symbols.push(String(v + 1));
+						}
+						else { // hex
+							symbols.push((x & 0xf).toString(16).toUpperCase());
+						}
+					}
+					break;
 				}
 
-				remaining = target - bits.length;
-				await new Promise(r => setTimeout(r, 0));   // keep UI responsive
+				// 1. Periodic Pattern (old generatePeriodicBits)
+				case "periodic": {
+					const pattern = [];
+					for (let i = 0; i < 12; i++) {
+						const v = (main_random() * 0xffffffff) >>> 0;
+						const bit = (v >> i) & 1;
+						// map the bit into the current alphabet
+						if (sequenceType === "bit") {
+							pattern.push(bit ? "1" : "0");
+						} else if (sequenceType === "dice") {
+							pattern.push(String((bit ? 4 : 1) + (i % 3))); // just a deterministic mapping
+						} else {
+							pattern.push((bit ? 8 : 0 + (i % 8)).toString(16).toUpperCase());
+						}
+					}
+					while (symbols.length < target) symbols.push(...pattern);
+					symbols.length = target;
+					break;
+				}
+		
+				// 2. Low Entropy – single repeating value (old generateLowEntropyBits)
+				case "lowentropy": {
+					const x = (main_random() * 0xff) >>> 0;   // same as old “byte”
+					// turn that single value into one symbol of the current alphabet
+					let s;
+					if (sequenceType === "bit") {
+						s = (x & 1) ? "1" : "0";
+					} else if (sequenceType === "dice") {
+						s = String((x % 6) + 1);
+					} else {
+						s = (x & 0xf).toString(16).toUpperCase();
+					}
+					symbols = new Array(target).fill(s);
+					break;
+				}
+		
+				// 3. Weak Hash-Counter (old generateWeakHashBits)
+				case "weakhash": {
+					let salt = (main_random() * 0xffffffff) >>> 0;
+					let counter = 0;
+					while (symbols.length < target) {
+						let v = ((counter * 0x45D9F3B) ^ (counter >>> 16) ^ salt) >>> 0;
+						pushFromUint32(v);
+						counter++;
+					}
+					break;
+				}
+		
+				// 4. Hash-Counter classic (old generateHashCounterBits)
+				case "prnghash": {
+					let salt = (main_random() * 0xffffffff) >>> 0;
+					let counter = 0;
+					while (symbols.length < target) {
+						let v = ((counter * 2654435761) ^ salt) >>> 0;
+						pushFromUint32(v);
+						counter++;
+					}
+					break;
+				}
+		
+				// 5. Biased ≈ 60 % (old generateBiasedBits)
+				case "onebiased": {
+					let bias = 0.55 + (main_random() * 0.1 - 0.05);
+					for (let i = 0; i < target; i++) {
+						const r = main_random();
+						if (sequenceType === "bit") {
+							symbols.push(r < bias ? "1" : "0");
+						} else if (sequenceType === "dice") {
+							// bias toward higher faces
+							const face = r < bias ? Math.floor(main_random() * 3) + 4 : Math.floor(main_random() * 3) + 1;
+							symbols.push(String(face));
+						} else {
+							const v = r < bias ? Math.floor(main_random() * 8) + 8 : Math.floor(main_random() * 8);
+							symbols.push(v.toString(16).toUpperCase());
+						}
+					}
+					break;
+				}
+		
+				// 6. Hidden / drifting bias (old generateHiddenBiasBits)
+				case "hiddenbiased": {
+					let bias = 0.50 + (main_random() * 0.1 - 0.05);
+					for (let i = 0; i < target; i++) {
+						const r = main_random();
+						if (sequenceType === "bit") {
+							symbols.push(r < bias ? "1" : "0");
+						} else if (sequenceType === "dice") {
+							symbols.push(String(Math.floor(r * 6) + 1));
+						} else {
+							symbols.push(Math.floor(r * 16).toString(16).toUpperCase());
+						}
+						bias += (main_random() * 0.0002 - 0.0001);
+						if (bias < 0.45) bias = 0.45;
+						if (bias > 0.55) bias = 0.55;
+					}
+					break;
+				}
+		
+				// 7. XORShift (old generateXORShiftBits)
+				case "xorshift": {
+					let x = (main_random() * 0xffffffff) >>> 0;
+					while (symbols.length < target) {
+						x ^= x << 13;
+						x ^= x >>> 17;
+						x ^= x << 5;
+						x = x >>> 0;
+						pushFromUint32(x);
+					}
+					break;
+				}
+		
+				// 8. XOR of two weak streams (old generateXORWeakBits)
+				case "xorweak": {
+					let a = (main_random() * 0xffffffff) >>> 0;
+					let b = (main_random() * 0xffffffff) >>> 0;
+					while (symbols.length < target) {
+						a = (a * 1664525 + 1013904223) >>> 0;
+						b ^= b << 5; b ^= b >>> 7; b ^= b << 17;
+						const v = a ^ b;
+						pushFromUint32(v);
+					}
+					break;
+				}
+		
+				// 9. Fake AES-CTR (old generateFakeAESBits)
+				case "fakeaes": {
+					let key = (main_random() * 0xffffffff) >>> 0;
+					let counter = (main_random() * 0xffffffff) >>> 0;
+					while (symbols.length < target) {
+						let v = ((counter * 0x9E3779B9) ^ key) >>> 0;
+						pushFromUint32(v);
+						counter++;
+					}
+					break;
+				}
+		
+				// 10. Fake ChaCha (old generateFakeChaChaBits)
+				case "fakechacha": {
+					let x = (main_random() * 0xffffffff) >>> 0;
+					let y = (main_random() * 0xffffffff) >>> 0;
+					while (symbols.length < target) {
+						x = (x + y) >>> 0;
+						y = (y ^ x) >>> 0;
+						x = (x << 7) | (x >>> 25);
+						pushFromUint32(x);
+					}
+					break;
+				}
+		
+				// Fallback
+				default: {
+					while (symbols.length < target) {
+						const x = (main_random() * 0xffffffff) >>> 0;
+						pushFromUint32(x);
+					}
+				}
 			}
-			*/
-
-			// final safety cut
-			if (bits.length > target) bits.length = target;
-
-			document.getElementById("bitsInput").value = bits.join("");
-			document.getElementById("bitCount").textContent = bits.length;
+		
+			// Final safety
+			if (symbols.length > target) symbols.length = target;
+		
+			document.getElementById("bitsInput").value = symbols.join("");
+			updateSymbolCount();
 		});
+
 
 		// --- Helpers / RNGs ------------------------------------------------------
 		const startTime = performance.now();
@@ -725,200 +975,20 @@
 			return main_random_val; // default float mode
 		}
 
-		// --- Helpers / Whitening -------------------------------------------------
-		/* 0. direct random */
-		function generateDirectBits(amount) {
-			let out = [];
-			let x;
-
-			for (let i = 0; i < amount; i++) {
-				x = (main_random() * 0xffffffff) >>> 0;
-				out.push((x & 1) ? "1" : "0");
-
-			}
-			return out;
-		}
-		/* 1. Periodic Pattern — random pattern */
-		function generatePeriodicBits(amount) {
-			let out = [];
-			let pattern = [];
-
-			for (let i = 0; i < 12; i++) {
-				// Get a terrible 32‑bit integer from the entropy source
-				let v = (main_random() * 0xffffffff) >>> 0;
-
-				// Extract one bit from different positions
-				let bit = (v >> i) & 1;
-
-				pattern.push(bit ? "1" : "0");
-			}
-
-			while (out.length < amount) out.push(...pattern);
-			out.length = amount;
-			return out;
-		}
-		/* 2. Low Entropy — random repeating byte */
-		function generateLowEntropyBits(amount) {
-			let out = [];
-			let byte = (main_random() * 0xff) >>> 0;
-
-			while (out.length < amount) {
-				for (let i = 7; i >= 0 && out.length < amount; i--) {
-					out.push((byte >> i) & 1 ? "1" : "0");
-				}
-			}
-			return out;
-		}
-		/* 3. Weak Hash-Counter — stronger failure, fresh output */
-		function generateWeakHashBits(amount) {
-			let out = [];
-			let salt = (main_random() * 0xffffffff) >>> 0;
-			let counter = 0;
-
-			while (out.length < amount) {
-				let v = ((counter * 0x45D9F3B) ^ (counter >>> 16) ^ salt) >>> 0;
-
-				for (let i = 0; i < 32 && out.length < amount; i++) {
-					out.push((v >> (31 - i)) & 1 ? "1" : "0");
-				}
-				counter++;
-			}
-			return out;
-		}
-		/* 4. Hash-Counter (classic) — now with random salt */
-		function generateHashCounterBits(amount) {
-			let out = [];
-			let salt = (main_random() * 0xffffffff) >>> 0;
-			let counter = 0;
-
-			while (out.length < amount) {
-				let v = ((counter * 2654435761) ^ salt) >>> 0;
-
-				for (let i = 0; i < 32 && out.length < amount; i++) {
-					out.push((v >> (31 - i)) & 1 ? "1" : "0");
-				}
-				counter++;
-			}
-			return out;
-		}
-		/* 5. Biased RNG — random bias (60%) */
-		function generateBiasedBits(amount) {
-			let out = [];
-
-			// Initial bias in [0.50, 0.60]
-			let bias = 0.55 + (main_random() * 0.1 - 0.05);
-
-			for (let i = 0; i < amount; i++) {
-
-				// Extract a bit from the poor RNG
-				let v = (main_random() * 0xffffffff) >>> 0;
-				let bit = (v >> (i & 31)) & 1;
-
-				// Apply bias
-				out.push(bit < bias ? "1" : "0");
-			}
-
-			return out;
-		}
-		/* 6. Hidden Bias — drifting bias */
-		function generateHiddenBiasBits(amount) {
-			let out = [];
-
-			// Initial bias in [0.45, 0.55]
-			let bias = 0.50 + (main_random() * 0.1 - 0.05);
-
-			for (let i = 0; i < amount; i++) {
-
-				// Extract a bit from the poor RNG
-				let v = (main_random() * 0xffffffff) >>> 0;
-				let bit = (v >> (i & 31)) & 1;
-
-				// Apply bias
-				out.push(bit < bias ? "1" : "0");
-
-				// Drift bias slightly
-				bias += (main_random() * 0.0002 - 0.0001);
-
-				// Clamp bias
-				if (bias < 0.45) bias = 0.45;
-				if (bias > 0.55) bias = 0.55;
-			}
-
-			return out;
-		}
-		/* 7. XORShift — random seed */
-		function generateXORShiftBits(amount) {
-			let out = [];
-			let x = (main_random() * 0xffffffff) >>> 0;
-
-			for (let i = 0; i < amount; i++) {
-				x ^= x << 13;
-				x ^= x >>> 17;
-				x ^= x << 5;
-				out.push((x & 1) ? "1" : "0");
-			}
-			return out;
-		}
-		/* 8. XOR Weak Streams — random seeds */
-		function generateXORWeakBits(amount) {
-			let out = [];
-			let a = (main_random() * 0xffffffff) >>> 0;
-			let b = (main_random() * 0xffffffff) >>> 0;
-
-			while (out.length < amount) {
-				a = (a * 1664525 + 1013904223) >>> 0;
-				b ^= b << 5; b ^= b >>> 7; b ^= b << 17;
-
-				let v = a ^ b;
-
-				for (let i = 0; i < 32 && out.length < amount; i++) {
-					out.push((v >> (31 - i)) & 1 ? "1" : "0");
-				}
-			}
-			return out;
-		}
-		/* 9. Fake AES-CTR — random key */
-		function generateFakeAESBits(amount) {
-			let out = [];
-			let key = (main_random() * 0xffffffff) >>> 0;
-			let counter = (main_random() * 0xffffffff) >>> 0;
-
-			while (out.length < amount) {
-				let v = ((counter * 0x9E3779B9) ^ key) >>> 0;
-
-				for (let i = 0; i < 32 && out.length < amount; i++) {
-					out.push((v >> (31 - i)) & 1 ? "1" : "0");
-				}
-				counter++;
-			}
-			return out;
-		}
-		/* 10. Fake ChaCha — random state */
-		function generateFakeChaChaBits(amount) {
-			let out = [];
-			let x = (main_random() * 0xffffffff) >>> 0;
-			let y = (main_random() * 0xffffffff) >>> 0;
-
-			while (out.length < amount) {
-				x = (x + y) >>> 0;
-				y = (y ^ x) >>> 0;
-				x = (x << 7) | (x >>> 25);
-
-				for (let i = 0; i < 32 && out.length < amount; i++) {
-					out.push((x >> (31 - i)) & 1 ? "1" : "0");
-				}
-			}
-			return out;
-		}
-
 		// --- Helpers ------------------------------------------------------------
-		function normalizeBits(text) {
-			// Keep only 0 and 1
-			return (text || "").replace(/[^01]/g, "");
-		}
-		function updateBitCount() {
-			const bits = normalizeBits(bitsInput.value);
-			bitCountLabel.textContent = bits.length.toString();
+		function updateSymbolCount() {
+			const type = getSequenceType();
+			const symbols = normalizeSymbols(bitsInput.value, type);
+			bitCountLabel.textContent = symbols.length.toString();
+		
+			const derived = document.getElementById("bitDerived");
+			if (type === "bit") {
+				derived.textContent = "";
+			} else {
+				const bits = symbolsToBits(symbols, type);
+				bitsConverted.value = bits;
+				derived.textContent = ` → ${bits.length} bits`;
+			}
 		}
 		function setProgress(percent, text, currentTestName) {
 			progressBarInner.style.width = `${percent}%`;
@@ -2063,166 +2133,143 @@
 		function erfc(x) {
 			return 1 - erf(x);
 		}
+
 		function nist_random_excursions_test(bits) {
 			const n = bits.length;
-
 			if (n < 1000000) {
-				return {
-					pass: false,
-					pValue: null,
-					notes: `Requires ≥ 1000000 bits, got ${n}.`
-				};
+				return { pass: false, pValue: null, notes: `Requires ≥ 1 000 000 bits, got ${n}.` };
 			}
-
-			// Convert bits to +1 / -1
-			const X = new Array(n);
-			for (let i = 0; i < n; i++) {
-				X[i] = bits[i] === "1" ? 1 : -1;
-			}
-
-			// Build cumulative sum
+		
+			// 1. Convert to ±1 and build cumulative sum with leading/trailing zero
 			const S = [0];
+			let sum = 0;
 			for (let i = 0; i < n; i++) {
-				S.push(S[i] + X[i]);
+				sum += (bits[i] === "1" ? 1 : -1);
+				S.push(sum);
 			}
-
-			// Identify zero crossings (cycles)
-			const zeroPositions = [];
+			S.push(0); // trailing zero
+		
+			// 2. Find cycle boundaries (returns to zero)
+			const zeroPos = [];
 			for (let i = 1; i < S.length; i++) {
-				if (S[i] === 0) zeroPositions.push(i);
+				if (S[i] === 0) zeroPos.push(i);
 			}
-
-			const cycles = zeroPositions.length;
-			if (cycles < 1) {
+			const J = zeroPos.length; // number of cycles
+		
+			if (J < 500) {
 				return {
 					pass: false,
 					pValue: null,
-					notes: "No cycles found (random walk never returned to zero)."
+					notes: `Only ${J} cycles (NIST recommends ≥ 500). Test inconclusive.`
 				};
 			}
-
-			// States to check
+		
+			// 3. States and theoretical probabilities π_k(x)
 			const states = [-4, -3, -2, -1, 1, 2, 3, 4];
-
-			const counts = {};
-			states.forEach(s => counts[s] = 0);
-
-			// Count visits to each state within each cycle
+			// π[k][x] for k = 0..5  (k=5 means ≥5)
+			function getPi(k, x) {
+				const ax = Math.abs(x);
+				if (k === 0) return 1 - 1 / (2 * ax);
+				if (k >= 5) return (1 / (2 * ax)) * Math.pow(1 - 1 / (2 * ax), 4);
+				return (1 / (4 * ax * ax)) * Math.pow(1 - 1 / (2 * ax), k - 1);
+			}
+		
+			// 4. Count visits per cycle, bin into 0,1,2,3,4,≥5
+			const nu = {}; // nu[state][bin]
+			states.forEach(s => nu[s] = [0,0,0,0,0,0]);
+		
 			let start = 0;
-			for (let c = 0; c < cycles; c++) {
-				const end = zeroPositions[c];
-				for (let i = start; i < end; i++) {
+			for (const end of zeroPos) {
+				const cycleCounts = {};
+				states.forEach(s => cycleCounts[s] = 0);
+		
+				for (let i = start + 1; i < end; i++) {
 					const val = S[i];
-					if (counts[val] !== undefined) counts[val]++;
+					if (cycleCounts[val] !== undefined) cycleCounts[val]++;
 				}
+		
+				states.forEach(s => {
+					const c = cycleCounts[s];
+					if (c >= 5) nu[s][5]++;
+					else nu[s][c]++;
+				});
 				start = end;
 			}
-
-			// Expected probabilities (NIST table)
-			const P = {
-				"-4": 0.000671,
-				"-3": 0.005132,
-				"-2": 0.026521,
-				"-1": 0.121117,
-				"1": 0.121117,
-				"2": 0.026521,
-				"3": 0.005132,
-				"4": 0.000671
-			};
-
-			// Compute p-values per state
+		
+			// 5. Chi-square and p-values
 			const pValues = {};
-			for (const s of states) {
-				const x = counts[s];
-				const expected = cycles * P[s];
-				const chi2 = ((x - expected) ** 2) / expected;
-				pValues[s] = Math.exp(-chi2 / 2);
+			let minP = 1;
+		
+			for (const x of states) {
+				let chi2 = 0;
+				for (let k = 0; k <= 5; k++) {
+					const expected = J * getPi(k, x);
+					chi2 += Math.pow(nu[x][k] - expected, 2) / expected;
+				}
+				// df = 5 → igamc(5/2, chi2/2) = igamc(2.5, chi2/2)
+				const p = igamc(2.5, chi2 / 2);
+				pValues[x] = p;
+				if (p < minP) minP = p;
 			}
-
+		
 			return {
-				pass: Object.values(pValues).every(p => p >= 0.01),
-				pValue: Math.min(...Object.values(pValues)),
-				//notes: `cycles=${cycles}, counts=${JSON.stringify(counts)}, pValues=${JSON.stringify(pValues)}`
-				notes:
-					`cycles=${cycles}\n` +
-					`min pValue=${Math.min(...Object.values(pValues)).toExponential(3)}\n` +
-					`max pValue=${Math.max(...Object.values(pValues)).toExponential(3)}`
+				pass: minP >= 0.01,
+				pValue: minP,
+				notes: `cycles=${J}, min p=${minP.toExponential(3)}`
 			};
 		}
+
 		function nist_random_excursions_variant_test(bits) {
 			const n = bits.length;
-
 			if (n < 1000000) {
-				return {
-					pass: false,
-					pValue: null,
-					notes: `Requires ≥ 1000000 bits, got ${n}.`
-				};
+				return { pass: false, pValue: null, notes: `Requires ≥ 1 000 000 bits, got ${n}.` };
 			}
-
-			// Convert bits to +1 / -1
-			const X = new Array(n);
-			for (let i = 0; i < n; i++) {
-				X[i] = bits[i] === "1" ? 1 : -1;
-			}
-
-			// Build cumulative sum
+		
+			// 1. ±1 walk + leading/trailing 0
 			const S = [0];
+			let sum = 0;
 			for (let i = 0; i < n; i++) {
-				S.push(S[i] + X[i]);
+				sum += (bits[i] === "1" ? 1 : -1);
+				S.push(sum);
 			}
-
-			// Identify zero crossings (cycles)
-			const zeroPositions = [];
-			for (let i = 1; i < S.length; i++) {
-				if (S[i] === 0) zeroPositions.push(i);
-			}
-
-			const cycles = zeroPositions.length;
-			if (cycles < 1) {
-				return {
-					pass: false,
-					pValue: null,
-					notes: "No cycles found (random walk never returned to zero)."
-				};
-			}
-
-			// States to check
-			const states = [-9, -8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-
+			S.push(0);
+		
+			// 2. Count total visits and number of cycles J
+			const states = [-9,-8,-7,-6,-5,-4,-3,-2,-1, 1,2,3,4,5,6,7,8,9];
 			const counts = {};
 			states.forEach(s => counts[s] = 0);
-
-			// Count visits to each state
-			let start = 0;
-			for (let c = 0; c < cycles; c++) {
-				const end = zeroPositions[c];
-				for (let i = start; i < end; i++) {
-					const val = S[i];
-					if (counts[val] !== undefined) counts[val]++;
-				}
-				start = end;
+		
+			let J = 0;
+			for (let i = 1; i < S.length; i++) {
+				const val = S[i];
+				if (val === 0) J++;
+				if (counts[val] !== undefined) counts[val]++;
 			}
-
-			// Expected probability for each state (NIST formula)
+		
+			if (J < 500) {
+				return {
+					pass: false,
+					pValue: null,
+					notes: `Only ${J} cycles (NIST recommends ≥ 500). Test inconclusive.`
+				};
+			}
+		
+			// 3. p-values using the half-normal formula
+			let minP = 1;
 			const pValues = {};
-			for (const s of states) {
-				const x = counts[s];
-				const p = Math.exp(-Math.abs(s)) * (1 - Math.exp(-Math.abs(s)));
-				const expected = cycles * p;
-
-				const chi2 = ((x - expected) ** 2) / expected;
-				pValues[s] = Math.exp(-chi2 / 2);
+		
+			for (const x of states) {
+				const xi = counts[x];
+				const denom = Math.sqrt(2 * J * (4 * Math.abs(x) - 2));
+				const p = erfc(Math.abs(xi - J) / denom);
+				pValues[x] = p;
+				if (p < minP) minP = p;
 			}
-
+		
 			return {
-				pass: Object.values(pValues).every(p => p >= 0.01),
-				pValue: Math.min(...Object.values(pValues)),
-				//notes: `cycles=${cycles}, counts=${JSON.stringify(counts)}, pValues=${JSON.stringify(pValues)}`
-				notes:
-					`cycles=${cycles}\n` +
-					`min pValue=${Math.min(...Object.values(pValues)).toExponential(3)}\n` +
-					`max pValue=${Math.max(...Object.values(pValues)).toExponential(3)}`
+				pass: minP >= 0.01,
+				pValue: minP,
+				notes: `cycles=${J}, min p=${minP.toExponential(3)}`
 			};
 		}
 
@@ -2423,15 +2470,16 @@
 
 		// --- Event wiring -------------------------------------------------------
 		bitsInput.addEventListener("input", () => {
-			bitsInput.value = normalizeBits(bitsInput.value);
-
+			const type = getSequenceType();
+			bitsInput.value = normalizeSymbols(bitsInput.value, type);
+		
 			clearAll();
-
+		
 			const truncate = document.getElementById("truncateCheckbox").checked;
 			if (truncate && bitsInput.value.length > 1_000_000) {
 				bitsInput.value = bitsInput.value.slice(0, 1_000_000);
 			}
-			updateBitCount();
+			updateSymbolCount();
 		});
 		fileInput.addEventListener("change", async (e) => {
 			const file = e.target.files && e.target.files[0];
@@ -2473,26 +2521,29 @@
 			updateBitCount();
 		});
 		analyzeBtn.addEventListener("click", () => {
-			const bits = normalizeBits(bitsInput.value);
-			if (!bits.length) {
-				alert("Please paste a binary sequence (0/1) or load a file first.");
+			const type = getSequenceType();
+			const symbols = normalizeSymbols(bitsInput.value, type);
+		
+			if (!symbols.length) {
+				alert("Please paste a valid sequence or load a file first.");
 				return;
 			}
-
+		
+			const bits = symbolsToBits(symbols, type);   // ← convert once
+			bitsConverted.value = bits;
+		
 			analyzeBtn.disabled = true;
 			progressContainer.style.display = "block";
 			setProgress(0, "Preparing…", "");
-			clearAll();
-
-			// Slight delay to let UI update
+			//clearAll();
+		
 			setTimeout(() => {
-				runTests(bits);
+				runTests(bits);          // all NIST tests still receive pure bits
 			}, 80);
 		});
 		clearBtn.addEventListener("click", () => {
-			bitsInput.value = "";
 			fileInput.value = "";
-			updateBitCount();
+			//updateBitCount();
 			resetResultsTable();
 			progressContainer.style.display = "none";
 			setProgress(0, "", "");
@@ -2501,9 +2552,10 @@
 		});
 
 		function init() {
-			updateBitCount();
+			//updateBitCount();
 			timeoutLabel.textContent = `${timeoutPerTestMs / 1000} s`;
 			resetResultsTable();
+			updateSequenceUI()
 		}
 		init();
 	</script>
