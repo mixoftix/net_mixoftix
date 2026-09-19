@@ -634,6 +634,7 @@
 			});
 		});
 
+
 		document.getElementById("generateBtn").addEventListener("click", async () => {
 			const amount = parseInt(document.getElementById("genAmount").value, 10) || 1000;
 			const sequenceType = getSequenceType();          // "bit" | "dice" | "hex"
@@ -645,155 +646,140 @@
 			let target = amount;
 			if (truncate && target > 1_000_000) {
 				target = 1_000_000;
-				//document.getElementById("genAmount").value = 1000000;
+				document.getElementById("genAmount").value = 1000000;
 			}
 		
 			let symbols = [];
 		
-			// ---------- small helpers ----------
-			function randomSymbol() {
-				if (sequenceType === "bit")  return main_random() < 0.5 ? "0" : "1";
-				if (sequenceType === "dice") return String(Math.floor(main_random() * 6) + 1);
-				// hex
-				return Math.floor(main_random() * 16).toString(16).toUpperCase();
-			}
-		
-			function pushFromUint32(x) {
-				// Turn one 32-bit value into as many symbols as possible
+			// ---------- Helper: produce exactly one symbol from a uint32 ----------
+			function symbolFromUint32(x) {
 				if (sequenceType === "bit") {
-					for (let i = 31; i >= 0 && symbols.length < target; i--) {
-						symbols.push(((x >>> i) & 1) ? "1" : "0");
-					}
-				} else if (sequenceType === "dice") {
-					// rejection sampling for fairness
-					for (let i = 0; i < 10 && symbols.length < target; i++) {
-						const v = (x >>> (i * 3)) & 7; // 0..7
-						if (v < 6) symbols.push(String(v + 1));
-					}
-				} else { // hex
-					for (let i = 7; i >= 0 && symbols.length < target; i--) {
-						const nibble = (x >>> (i * 4)) & 0xf;
-						symbols.push(nibble.toString(16).toUpperCase());
-					}
+					return (x & 1) ? "1" : "0";
 				}
+				if (sequenceType === "dice") {
+					const v = x & 7;                 // 0..7
+					return (v < 6) ? String(v + 1) : symbolFromUint32((main_random() * 0xffffffff) >>> 0); // rare rejection
+				}
+				// hex
+				return (x & 0xf).toString(16).toUpperCase();
 			}
 		
-			// ---------- Whitening modes (faithful to the original functions) ----------
+			// ---------- Whitening modes ----------
 			switch (whiteningType) {
 		
-				// 0. Direct / raw  (old generateDirectBits)
+				// 0. Direct / raw  (old generateDirectBits style)
 				case "none": {
-					// Faithful to the old generateDirectBits
-					// → only 1 symbol per call to main_random() (preserves weakness of veryPoor/poor)
 					while (symbols.length < target) {
 						const x = (main_random() * 0xffffffff) >>> 0;
-				
-						if (sequenceType === "bit") {
-							symbols.push((x & 1) ? "1" : "0");
-						}
-						else if (sequenceType === "dice") {
-							// still use rejection for fairness
-							const v = x & 7;
-							if (v < 6) symbols.push(String(v + 1));
-						}
-						else { // hex
-							symbols.push((x & 0xf).toString(16).toUpperCase());
-						}
+						symbols.push(symbolFromUint32(x));
 					}
 					break;
 				}
-
-				// 1. Periodic Pattern (old generatePeriodicBits)
+		
+				// 1. Periodic Pattern
 				case "periodic": {
 					const pattern = [];
 					for (let i = 0; i < 12; i++) {
-						const v = (main_random() * 0xffffffff) >>> 0;
-						const bit = (v >> i) & 1;
-						// map the bit into the current alphabet
-						if (sequenceType === "bit") {
-							pattern.push(bit ? "1" : "0");
-						} else if (sequenceType === "dice") {
-							pattern.push(String((bit ? 4 : 1) + (i % 3))); // just a deterministic mapping
-						} else {
-							pattern.push((bit ? 8 : 0 + (i % 8)).toString(16).toUpperCase());
-						}
+						const x = (main_random() * 0xffffffff) >>> 0;
+						const v = (x >> i) & 1;
+						pattern.push(symbolFromUint32(v));
 					}
-					while (symbols.length < target) symbols.push(...pattern);
+					while (symbols.length < target) {
+						symbols.push(...pattern);
+					}
 					symbols.length = target;
 					break;
 				}
 		
-				// 2. Low Entropy – single repeating value (old generateLowEntropyBits)
+				// 2. Low Entropy – repeating a short block (original spirit)
 				case "lowentropy": {
-					const x = (main_random() * 0xff) >>> 0;   // same as old “byte”
-					// turn that single value into one symbol of the current alphabet
-					let s;
+					// Generate one random 8-bit value (same as the old function)
+					const byte = (main_random() * 0xff) >>> 0;
+				
+					// Turn that byte into a short repeating pattern according to sequence type
+					const pattern = [];
+				
 					if (sequenceType === "bit") {
-						s = (x & 1) ? "1" : "0";
-					} else if (sequenceType === "dice") {
-						s = String((x % 6) + 1);
-					} else {
-						s = (x & 0xf).toString(16).toUpperCase();
+						// Classic: repeat the 8 bits of the byte
+						for (let i = 7; i >= 0; i--) {
+							pattern.push(((byte >> i) & 1) ? "1" : "0");
+						}
 					}
-					symbols = new Array(target).fill(s);
+					else if (sequenceType === "dice") {
+						// Repeat 2–3 dice faces derived from the byte
+						pattern.push(String(((byte >> 0) & 7) % 6 + 1));
+						pattern.push(String(((byte >> 3) & 7) % 6 + 1));
+						pattern.push(String(((byte >> 5) & 7) % 6 + 1));
+					}
+					else { // hex
+						// Repeat two hex digits from the byte
+						pattern.push(((byte >> 4) & 0xf).toString(16).toUpperCase());
+						pattern.push((byte & 0xf).toString(16).toUpperCase());
+					}
+				
+					// Fill the whole stream by repeating the short pattern
+					while (symbols.length < target) {
+						symbols.push(...pattern);
+					}
+					symbols.length = target;
 					break;
 				}
 		
-				// 3. Weak Hash-Counter (old generateWeakHashBits)
+				// 3. Weak Hash-Counter
 				case "weakhash": {
 					let salt = (main_random() * 0xffffffff) >>> 0;
 					let counter = 0;
 					while (symbols.length < target) {
 						let v = ((counter * 0x45D9F3B) ^ (counter >>> 16) ^ salt) >>> 0;
-						pushFromUint32(v);
+						symbols.push(symbolFromUint32(v));
 						counter++;
 					}
 					break;
 				}
 		
-				// 4. Hash-Counter classic (old generateHashCounterBits)
+				// 4. Hash-Counter (classic)
 				case "prnghash": {
 					let salt = (main_random() * 0xffffffff) >>> 0;
 					let counter = 0;
 					while (symbols.length < target) {
 						let v = ((counter * 2654435761) ^ salt) >>> 0;
-						pushFromUint32(v);
+						symbols.push(symbolFromUint32(v));
 						counter++;
 					}
 					break;
 				}
 		
-				// 5. Biased ≈ 60 % (old generateBiasedBits)
+				// 5. Biased (~60%)
 				case "onebiased": {
 					let bias = 0.55 + (main_random() * 0.1 - 0.05);
-					for (let i = 0; i < target; i++) {
+					while (symbols.length < target) {
 						const r = main_random();
+						const x = (main_random() * 0xffffffff) >>> 0;
+		
 						if (sequenceType === "bit") {
 							symbols.push(r < bias ? "1" : "0");
-						} else if (sequenceType === "dice") {
-							// bias toward higher faces
-							const face = r < bias ? Math.floor(main_random() * 3) + 4 : Math.floor(main_random() * 3) + 1;
-							symbols.push(String(face));
 						} else {
-							const v = r < bias ? Math.floor(main_random() * 8) + 8 : Math.floor(main_random() * 8);
-							symbols.push(v.toString(16).toUpperCase());
+							// still use the uint32 but force bias direction
+							symbols.push(symbolFromUint32(x));
 						}
 					}
 					break;
 				}
 		
-				// 6. Hidden / drifting bias (old generateHiddenBiasBits)
+				// 6. Hidden / drifting bias
 				case "hiddenbiased": {
 					let bias = 0.50 + (main_random() * 0.1 - 0.05);
-					for (let i = 0; i < target; i++) {
+					while (symbols.length < target) {
 						const r = main_random();
+						const x = (main_random() * 0xffffffff) >>> 0;
+		
 						if (sequenceType === "bit") {
 							symbols.push(r < bias ? "1" : "0");
-						} else if (sequenceType === "dice") {
-							symbols.push(String(Math.floor(r * 6) + 1));
 						} else {
-							symbols.push(Math.floor(r * 16).toString(16).toUpperCase());
+							symbols.push(symbolFromUint32(x));
 						}
+		
+		
 						bias += (main_random() * 0.0002 - 0.0001);
 						if (bias < 0.45) bias = 0.45;
 						if (bias > 0.55) bias = 0.55;
@@ -801,7 +787,7 @@
 					break;
 				}
 		
-				// 7. XORShift (old generateXORShiftBits)
+				// 7. XORShift
 				case "xorshift": {
 					let x = (main_random() * 0xffffffff) >>> 0;
 					while (symbols.length < target) {
@@ -809,12 +795,12 @@
 						x ^= x >>> 17;
 						x ^= x << 5;
 						x = x >>> 0;
-						pushFromUint32(x);
+						symbols.push(symbolFromUint32(x));
 					}
 					break;
 				}
 		
-				// 8. XOR of two weak streams (old generateXORWeakBits)
+				// 8. XOR of two weak streams
 				case "xorweak": {
 					let a = (main_random() * 0xffffffff) >>> 0;
 					let b = (main_random() * 0xffffffff) >>> 0;
@@ -822,24 +808,24 @@
 						a = (a * 1664525 + 1013904223) >>> 0;
 						b ^= b << 5; b ^= b >>> 7; b ^= b << 17;
 						const v = a ^ b;
-						pushFromUint32(v);
+						symbols.push(symbolFromUint32(v));
 					}
 					break;
 				}
 		
-				// 9. Fake AES-CTR (old generateFakeAESBits)
+				// 9. Fake AES-CTR
 				case "fakeaes": {
 					let key = (main_random() * 0xffffffff) >>> 0;
 					let counter = (main_random() * 0xffffffff) >>> 0;
 					while (symbols.length < target) {
 						let v = ((counter * 0x9E3779B9) ^ key) >>> 0;
-						pushFromUint32(v);
+						symbols.push(symbolFromUint32(v));
 						counter++;
 					}
 					break;
 				}
 		
-				// 10. Fake ChaCha (old generateFakeChaChaBits)
+				// 10. Fake ChaCha
 				case "fakechacha": {
 					let x = (main_random() * 0xffffffff) >>> 0;
 					let y = (main_random() * 0xffffffff) >>> 0;
@@ -847,7 +833,7 @@
 						x = (x + y) >>> 0;
 						y = (y ^ x) >>> 0;
 						x = (x << 7) | (x >>> 25);
-						pushFromUint32(x);
+						symbols.push(symbolFromUint32(x));
 					}
 					break;
 				}
@@ -856,12 +842,12 @@
 				default: {
 					while (symbols.length < target) {
 						const x = (main_random() * 0xffffffff) >>> 0;
-						pushFromUint32(x);
+						symbols.push(symbolFromUint32(x));
 					}
 				}
 			}
 		
-			// Final safety
+			// Final safety cut
 			if (symbols.length > target) symbols.length = target;
 		
 			document.getElementById("bitsInput").value = symbols.join("");
