@@ -120,6 +120,14 @@
 				Use for high-stakes cryptography is entirely at the user’s own risk.
             </p>
         </section>
+		<section class="content-box">
+			<h2>License</h2>
+			<p>
+				The <strong>Decent Dice</strong> project is source-available and provided for academic review and public pull-request contributions under 
+				a restricted, audit-only license. Such contributions may be reviewed and merged solely at the author's discretion. 
+				Please read the official <a href="https://github.com/mixoftix/net_mixoftix/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">license declaration on GitHub</a>.
+			</p>
+		</section>
 
 		<section class="content-box">
 			<h2>Simulator</h2>
@@ -314,6 +322,13 @@ Click “Shuffle settings” or “Drop the dice” to start
 
         const EARTH_RADIUS_KM = 6371;
         const G0 = 9.81;
+
+        // ---------- Simulator ----------
+		const DT_ZOOM_IN_SLOW = 0.0005;
+		const DT_ZOOM_IN_FAST = 0.0007;
+		const DT_ZOOM_OUT     = 0.001; 
+		const RD_TO_IMPACT    = 0.07;
+		const RT_TO_STOP      = 2.25;
 
         // ---------- Globals ----------
         let animId = null;
@@ -1071,24 +1086,74 @@ Click “Shuffle settings” or “Drop the dice” to start
             log += `  Time offset       : ${noiseTime.toFixed(3)} s\n`;
             log += '================================================\n';
 
+
             // Physics loop
             history = [];
             let t = 0, settled = 0;
             while (t < MAX_TIME) {
-                state[4] -= G * DT;
-                state[0] += state[3] * DT;
-                state[1] += state[4] * DT;
-                state[2] += state[5] * DT;
 
+                // 1. STATE IDENTIFICATION GENERATION
+                let remainingSim = MAX_TIME - RT_TO_STOP;
+                let zoomin_by_time = (t >= remainingSim);
+                let zoomin_by_dist = (state[1] <= RD_TO_IMPACT); // state[1] is center Y
+
+                let activeDT;
+
+                // 2. GEOMETRIC & DIRECTIONAL LIGHTWEIGHT SELECTION
+                if (zoomin_by_time && zoomin_by_dist) {
+                    activeDT = DT_ZOOM_IN_SLOW;
+                } else if (zoomin_by_time) {
+                    activeDT = DT_ZOOM_IN_FAST;
+                } else if (zoomin_by_dist) {
+                    activeDT = DT_ZOOM_IN_SLOW;
+                } else {
+                    activeDT = DT_ZOOM_OUT;
+                }
+
+                // 1. Apply Gravitational Pull directly to Vertical Velocity (Vy)
+                state[4] -= G * activeDT;
+                // 2. Integrate Linear X Position using Linear X Velocity (Vx)
+                state[0] += state[3] * activeDT;
+                // 3. Integrate Linear Y Position using Vertical Velocity (Vy)
+                state[1] += state[4] * activeDT;
+                // 4. Integrate Angular Orientation using Angular Velocity (omega)
+                state[2] += state[5] * activeDT;
+
+                // Evaluate structural collisions checks (Direct Global Manipulation)
+                // We keep state references continuous on every iteration to guarantee the floor boundary 
+                // cannot be bypassed by variable fragmentation or sudden fast-forward jumps.
                 [state] = collideAndResolve(state, rest, fric, adh, MASS, I, HALF);
+                
+                // Record pristine frame tracking properties directly to global history array
                 history.push([...state]);
 
+                // Fresh combined velocity tracking state
                 const speed = Math.hypot(state[3], state[4]) + Math.abs(state[5]) * SIDE;
+
+                //============================================================
+                // UPGRADED V1.2 HYBRID SLEEP OUT CHECK
+                //============================================================
+                // If the die center Y drops under the 1mm floor boundary zone 
+                // and total remaining energy drops below 0.05, put it to sleep!
+                if (state[1] < 0.026) {
+                    if (speed < 0.05) {
+                        break;
+                    }
+                }
+
+                //============================================================
+                // Settlement Criteria Evaluation Check (Standard Mode Fallback)
+                //============================================================
                 if (speed < 0.01 && state[1] < HALF + 0.01) {
-                    if (++settled > 200) break;
-                } else settled = 0;
-                t += DT;
+                    if (++settled > 100) break; // Synced with the 100 frame cap adjustment
+                } else {
+                    settled = 0;
+                }
+
+                // Step simulation time counter forward dynamically
+                t += activeDT;
             }
+
 
             const finalTheta = state[2];
             const finalTopG  = faceFromAngle(finalTheta, 'top');
@@ -1263,20 +1328,60 @@ Click “Shuffle settings” or “Drop the dice” to start
 			// Pure physics loop – no history, no drawing, no logging
 			let t = 0, settled = 0;
 			while (t < MAX_TIME) {
-				state[4] -= G * DT;
-				state[0] += state[3] * DT;
-				state[1] += state[4] * DT;
-				state[2] += state[5] * DT;
+
+				// 1. STATE IDENTIFICATION GENERATION
+				let remainingSim = MAX_TIME - RT_TO_STOP;
+				let zoomin_by_time = (t >= remainingSim);
+				let zoomin_by_dist = (state[1] <= RD_TO_IMPACT); // state[1] is center Y
+
+				let activeDT;
+
+				// 2. GEOMETRIC & DIRECTIONAL LIGHTWEIGHT SELECTION
+				if (zoomin_by_time && zoomin_by_dist) {
+					activeDT = DT_ZOOM_IN_SLOW;
+				} else if (zoomin_by_time) {
+					activeDT = DT_ZOOM_IN_FAST;
+				} else if (zoomin_by_dist) {
+					activeDT = DT_ZOOM_IN_SLOW;
+				} else {
+					activeDT = DT_ZOOM_OUT;
+				}
+
+				// Apply Gravitational Pull and Kinematic Position Integration using activeDT
+				state[4] -= G * activeDT;
+				state[0] += state[3] * activeDT;
+				state[1] += state[4] * activeDT;
+				state[2] += state[5] * activeDT;
 		
+				// Evaluate structural collisions checks safely
+				// Unconditional execution protects array references from dropped assignments
 				[state] = collideAndResolve(state, rest, fric, adh, MASS, I, HALF);
 		
+				// Fresh combined velocity tracking state
 				const speed = Math.hypot(state[3], state[4]) + Math.abs(state[5]) * SIDE;
+
+				//============================================================
+				// UPGRADED V1.2 HYBRID SLEEP OUT CHECK
+				//============================================================
+				// If the die center Y drops under the 1mm floor boundary zone 
+				// and total remaining energy drops below 0.05, put it to sleep!
+				if (state[1] < 0.026) {
+					if (speed < 0.05) {
+						break;
+					}
+				}
+
+				//============================================================
+				// Settlement Criteria Evaluation Check (Standard Mode Fallback)
+				//============================================================
 				if (speed < 0.01 && state[1] < HALF + 0.01) {
-					if (++settled > 200) break;
+					if (++settled > 100) break; // Synced with the 100 frame cap adjustment
 				} else {
 					settled = 0;
 				}
-				t += DT;
+
+				// Step simulation time counter forward dynamically
+				t += activeDT;
 			}
 		
 			const finalTopG = faceFromAngle(state[2], 'top');
