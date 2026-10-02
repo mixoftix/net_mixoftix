@@ -613,6 +613,136 @@ Click “Shuffle settings” or “Drop the dice” to start
         function rand(min, max) { return main_random() * (max - min) + min; }
         function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
 
+		// ==============================================================================
+		// SYSTEM STATE DESIGNATION FLAGS (Set globally during JSON configuration parse)
+		// ==============================================================================
+		let ACTIVE_SIMULATOR_PROFILE = "NATIVE_JS_64BIT"; 	// Fallback default state
+		
+		/**
+		 * Parses the incoming JSON session profile tag to lock down execution constraints.
+		 * @param {Object} sessionJson The imported master configuration profile object
+		 */
+		function initializeSimulatorEnviroment(sessionJson) {
+			if (sessionJson && sessionJson.simulatorProfile) {
+				ACTIVE_SIMULATOR_PROFILE = sessionJson.simulatorProfile;
+				console.log(`[SYS] Precision Engine Locked to Profile: ${ACTIVE_SIMULATOR_PROFILE}`);
+			} else {
+				ACTIVE_SIMULATOR_PROFILE = "NATIVE_JS_64BIT";
+			}
+		}
+
+		// ==============================================================================
+		// GLOBAL PRECISION CALIBRATION ENGINE (UPDATED FOR MULTI-BIT LOCKING)
+		// ==============================================================================
+		var Unified_Math = {
+			SQRT2: Math.SQRT2,
+		
+			f32: function(x) {
+				return (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE")
+					? Math.fround(x)
+					: x;
+			},
+
+			pii: function() {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					return Math.fround(Math.PI);   // true AVR single-precision PI
+				}
+				return Math.PI;
+			},
+
+			cos: function(theta) {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					return Math.fround(Math.cos(Math.fround(theta)));
+				}
+				return Math.cos(theta);
+			},
+		
+			sin: function(theta) {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					return Math.fround(Math.sin(Math.fround(theta)));
+				}
+				return Math.sin(theta);
+			},
+		
+			tanh: function(value) {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					return Math.fround(Math.tanh(Math.fround(value)));
+				}
+				return Math.tanh(value);
+			},
+		
+			floor_grok: function(v) {
+				v = Unified_Math.f32(v);
+				let t = Math.trunc(v);                    // toward zero (like Fix)
+				if (v < 0 && v !== t) t -= 1;
+				return t;
+			},
+
+			floor: function(value) {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					return Math.floor(Math.fround(value));
+				}
+				return Math.floor(value);
+			},
+		
+			abs: function(value) {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					return Math.fround(Math.abs(Math.fround(value)));
+				}
+				return Math.abs(value);
+			},
+		
+			sqrt: function(value) {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					return Math.fround(Math.sqrt(Math.fround(value)));
+				}
+				return Math.sqrt(value);
+			},
+		
+			/**
+			 * ADDED: Replicates Math.pow with dynamic 32-bit/64-bit profiles.
+			 */
+			pow: function(base, exponent) {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					return Math.fround(Math.pow(Math.fround(base), Math.fround(exponent)));
+				}
+				return Math.pow(base, exponent);
+			},
+		
+			/**
+			 * ADDED: Replicates Math.max with dynamic multi-argument 32-bit/64-bit profiles.
+			 */
+			max: function(...args) {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					let clampedArgs = args.map(v => Math.fround(v));
+					return Math.fround(Math.max(...clampedArgs));
+				}
+				return Math.max(...args);
+			},
+		
+			/**
+			 * ADDED: Replicates Math.min with dynamic multi-argument 32-bit/64-bit profiles.
+			 */
+			min: function(...args) {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					let clampedArgs = args.map(v => Math.fround(v));
+					return Math.fround(Math.min(...clampedArgs));
+				}
+				return Math.min(...args);
+			},
+		
+			/**
+			 * Custom Helper: Injects explicit 32-bit mantissa truncation for standard 
+			 * mathematical operations (additions, products) when running under an AVR profile.
+			 */
+			val: function(value) {
+				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+					return Math.fround(value);
+				}
+				return value;
+			}
+		};
+
 
         // ---------- Classic helpers ----------
 		function isShowAnim() {
@@ -622,61 +752,193 @@ Click “Shuffle settings” or “Drop the dice” to start
 			return document.getElementById('generateStream').value === 'true';
 		}		
 
-        function angleForTopFace(topFace) {
-            return (2 - topFace) * (Math.PI / 2);
-        }
-        function faceFromAngle(theta, which = 'top') {
-            let th = ((theta % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-            let idx = Math.floor((th + Math.PI / 4) / (Math.PI / 2)) % 4;
-            return which === 'bottom' ? idx : (idx + 2) % 4;
-        }
-        function vertices(x, y, theta, half) {
-            const c = Math.cos(theta), s = Math.sin(theta);
-            const local = [[-half,-half],[half,-half],[half,half],[-half,half]];
-            return local.map(([lx, ly]) => [
-                x + lx * c - ly * s,
-                y + lx * s + ly * c
-            ]);
-        }
-        function gravityAtAltitude(km) {
-            const r = EARTH_RADIUS_KM + Math.max(0, km);
-            return G0 * Math.pow(EARTH_RADIUS_KM / r, 2);
-        }
+		function angleForTopFace(topFace) {
+			// Bascom: Temp_multiplier = 2.0 - TopFace
+			//         Half_pi = 3.14159265 / 2.0
+			//         Final_angle = Temp_multiplier * Half_pi
+			const halfPi = Unified_Math.f32(Unified_Math.pii() / 2);
+			return Unified_Math.f32(Unified_Math.f32(2 - topFace) * halfPi);
+		}
+		
+		function faceFromAngle(theta, which = 'top') {
+			if (ACTIVE_SIMULATOR_PROFILE !== "AVR_32BIT_SINGLE") {
+				// original Double path …
+				let th = ((theta % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+				let idx = Math.floor((th + Math.PI / 4) / (Math.PI / 2)) % 4;
+				return which === 'bottom' ? idx : (idx + 2) % 4;
+			}
+		
+			// ----- Exact Bascom sequence -----
+			const twopi     = Unified_Math.f32(2.0 * Unified_Math.pii());
+			const halfPi    = Unified_Math.f32(Unified_Math.pii() / 2.0);
+			const quarterPi = Unified_Math.f32(Unified_Math.pii() / 4.0);
+		
+			// Bascom: Temp_div = Theta / Twopi   (Single → Long = toward-zero)
+			let tempDiv  = Math.trunc(Unified_Math.f32(theta / twopi));   // grok edition, toward zero, NOT floor
+			// Bascom: Temp_div = Theta / Twopi   (Long truncation)
+			///let tempDiv  = Unified_Math.floor(Unified_Math.f32(theta / twopi)); // working edition
+			let tempCalc = Unified_Math.f32(tempDiv * twopi);
+			let th       = Unified_Math.f32(theta - tempCalc);
+		
+			th = Unified_Math.f32(th + twopi);
+    		tempDiv  = Math.trunc(Unified_Math.f32(th / twopi));         // grok edition, again toward zero
+			///tempDiv  = Unified_Math.floor(Unified_Math.f32(th / twopi)); 	// working edition
+			tempCalc = Unified_Math.f32(tempDiv * twopi);
+			th       = Unified_Math.f32(th - tempCalc);
+		
+			// Bascom: Temp_calc = (Th + Quarter_pi) / Half_pi
+			tempCalc = Unified_Math.f32(th + quarterPi);
+			tempCalc = Unified_Math.f32(tempCalc / halfPi);
+		
+			let idxLong = Unified_Math.floor_grok(tempCalc); 				// grok edition, only the final index uses Floor
+			///let idxLong = Unified_Math.floor(tempCalc); 					// working edition
+			idxLong = ((idxLong % 4) + 4) % 4;   // positive mod
+		
+			if (which === "bottom") return idxLong;
+			return (idxLong + 2) % 4;
+		}
+		
+		function vertices(x, y, theta, half) {
+			x = Unified_Math.f32(x); y = Unified_Math.f32(y); theta = Unified_Math.f32(theta); half = Unified_Math.f32(half);
+			const c = Unified_Math.f32(Math.cos(theta));
+			const s = Unified_Math.f32(Math.sin(theta));
+		
+			// Exact Bascom order (local variables Temp1/Temp2)
+			const local = [
+				[Unified_Math.f32(-half), Unified_Math.f32(-half)],
+				[Unified_Math.f32( half), Unified_Math.f32(-half)],
+				[Unified_Math.f32( half), Unified_Math.f32( half)],
+				[Unified_Math.f32(-half), Unified_Math.f32( half)]
+			];
+		
+			return local.map(([lx, ly]) => {
+				// X = x + (lx*c - ly*s)
+				let temp1 = Unified_Math.f32(lx * c);
+				let temp2 = Unified_Math.f32(ly * s);
+				const vx  = Unified_Math.f32(x + Unified_Math.f32(temp1 - temp2));
+		
+				// Y = y + (lx*s + ly*c)
+				temp1 = Unified_Math.f32(lx * s);
+				temp2 = Unified_Math.f32(ly * c);
+				const vy  = Unified_Math.f32(y + Unified_Math.f32(temp1 + temp2));
+		
+				return [vx, vy];
+			});
+		}
+		
+		function gravityAtAltitude(km) {
+			km = Unified_Math.f32(km);
+			const r = Unified_Math.f32(EARTH_RADIUS_KM + km);
+			const ratio = Unified_Math.f32(EARTH_RADIUS_KM / r);
+			const ratioSq = Unified_Math.f32(ratio * ratio);
+			return Unified_Math.f32(G0 * ratioSq);
+		}
 
-        function collideAndResolve(st, restitution, friction, adhesion, mass, I, half) {
-            let [x, y, th, vx, vy, om] = st;
-            const verts = vertices(x, y, th, half);
-            let minY = Infinity, idx = 0;
-            for (let i = 0; i < 4; i++) {
-                if (verts[i][1] < minY) { minY = verts[i][1]; idx = i; }
-            }
-            if (minY >= 0) return [st, false];
-
-            const [px, py] = verts[idx];
-            const r = [px - x, py - y];
-            const vContact = [vx - om * r[1], vy + om * r[0]];
-            const vn = vContact[1];
-
-            const rnCross = r[0];
-            const invMn = 1/mass + (rnCross * rnCross) / I;
-            let jn = 0;
-            if (vn < 0) jn = -(1 + restitution) * vn / invMn;
-            if (Math.abs(vn) < 0.8) jn += -adhesion * 0.15 * mass;
-
-            const vt = vContact[0];
-            const rtCross = -r[1];
-            const invMt = 1/mass + (rtCross * rtCross) / I;
-            let jt = -vt / invMt;
-            const maxF = friction * Math.abs(jn);
-            jt = Math.max(-maxF, Math.min(maxF, jt));
-
-            vx += jt / mass;
-            vy += jn / mass;
-            om += (r[0] * jn - r[1] * jt) / I;
-            y -= minY + 1e-6;
-
-            return [[x, y, th, vx, vy, om], true];
-        }
+		function collideAndResolve(st, restitution, friction, adhesion, mass, I, half) {
+			// Work on a Float32Array when in AVR mode
+			let state = (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE")
+				? new Float32Array(st)
+				: st.slice();
+		
+			let x  = Unified_Math.f32(state[0]);
+			let y  = Unified_Math.f32(state[1]);
+			let th = Unified_Math.f32(state[2]);
+			let vx = Unified_Math.f32(state[3]);
+			let vy = Unified_Math.f32(state[4]);
+			let om = Unified_Math.f32(state[5]);
+		
+			const verts = vertices(x, y, th, half);
+		
+			// Find lowest vertex (Bascom 1-based → we keep 0-based)
+			let minY = 1e30, idx = 0;
+			for (let i = 0; i < 4; i++) {
+				if (verts[i][1] < minY) {
+					minY = verts[i][1];
+					idx  = i;
+				}
+			}
+			minY = Unified_Math.f32(minY);
+		
+			if (minY >= 0) {
+				return [Array.from(state), false];
+			}
+		
+			// r = [px-x, py-y]
+			const r0 = Unified_Math.f32(verts[idx][0] - x);
+			const r1 = Unified_Math.f32(verts[idx][1] - y);
+		
+			// vContact
+			let temp1 = Unified_Math.f32(om * r1);
+			let jt    = Unified_Math.f32(vx - temp1);          // vt stored in jt temporarily
+			temp1     = Unified_Math.f32(om * r0);
+			let jn    = Unified_Math.f32(vy + temp1);          // vn stored in jn temporarily
+		
+			// ---- Normal impulse (exact Bascom order) ----
+			temp1 = Unified_Math.f32(1 / mass);
+			let temp2 = Unified_Math.f32(r0 * r0);
+			temp2 = Unified_Math.f32(temp2 / I);
+			temp1 = Unified_Math.f32(temp1 + temp2);           // invMn
+		
+			temp2 = jn;                           // vn
+			jn = 0;
+		
+			if (temp2 < 0) {
+				jn = Unified_Math.f32(1 + restitution);
+				jn = Unified_Math.f32(-jn);
+				jn = Unified_Math.f32(jn * temp2);
+				jn = Unified_Math.f32(jn / temp1);
+			}
+		
+			temp2 = Unified_Math.f32(Math.abs(temp2));
+			if (temp2 < 0.8) {
+				temp1 = Unified_Math.f32(-adhesion);
+				temp1 = Unified_Math.f32(temp1 * 0.15);
+				temp1 = Unified_Math.f32(temp1 * mass);
+				jn = Unified_Math.f32(jn + temp1);
+			}
+		
+			// ---- Tangent impulse ----
+			temp1 = Unified_Math.f32(1 / mass);
+			temp2 = Unified_Math.f32(r1 * r1);
+			temp2 = Unified_Math.f32(temp2 / I);
+			temp1 = Unified_Math.f32(temp1 + temp2);           // invMt
+		
+			temp2 = Unified_Math.f32(-jt);
+			jt = Unified_Math.f32(temp2 / temp1);
+		
+			temp1 = Unified_Math.f32(Math.abs(jn));
+			temp1 = Unified_Math.f32(friction * temp1);        // maxF
+		
+			const negMaxF = Unified_Math.f32(-temp1);
+			if (jt < negMaxF) jt = negMaxF;
+			if (jt > temp1)   jt = temp1;
+		
+			// Apply impulses
+			temp1 = Unified_Math.f32(jt / mass);
+			vx = Unified_Math.f32(vx + temp1);
+		
+			temp1 = Unified_Math.f32(jn / mass);
+			vy = Unified_Math.f32(vy + temp1);
+		
+			temp1 = Unified_Math.f32(r0 * jn);
+			temp2 = Unified_Math.f32(r1 * jt);
+			temp1 = Unified_Math.f32(temp1 - temp2);
+			temp1 = Unified_Math.f32(temp1 / I);
+			om = Unified_Math.f32(om + temp1);
+		
+			// Position correction
+			y = Unified_Math.f32(y - minY);
+			y = Unified_Math.f32(y - 0.000001);
+		
+			state[0] = x;
+			state[1] = y;
+			state[2] = th;
+			state[3] = vx;
+			state[4] = vy;
+			state[5] = om;
+		
+			return [Array.from(state), true];
+		}
 
         function computeView(history, half) {
             if (!history.length) return;
@@ -750,7 +1012,7 @@ Click “Shuffle settings” or “Drop the dice” to start
             if (animId) cancelAnimationFrame(animId);
             if (!history.length) return;
             let frame = 0;
-            const step = Math.max(8, Math.min(40, Math.floor(history.length / 180)));
+            const step = Math.max(8, Math.min(40, Unified_Math.floor(history.length / 180)));
             function loop() {
                 drawFrame(Math.min(frame, history.length - 1));
                 frame += step;
@@ -794,6 +1056,8 @@ Click “Shuffle settings” or “Drop the dice” to start
             const cfg = {
                 version: 3,
                 timestamp: new Date().toISOString(),
+                // NEW INFRASTRUCTURE: Fingerprints this export profile natively as a JS engine
+                simulatorProfile: "JS_64BIT_NATIVE",
                 exactSession: true,
                 ...lastSession
             };
@@ -818,18 +1082,33 @@ Click “Shuffle settings” or “Drop the dice” to start
                     try {
                         const cfg = JSON.parse(ev.target.result);
 
+                        // ==============================================================================
+                        // UNIFIED ENGINE HARDWARE PROFILE HOOK
+                        // ==============================================================================
+                        // Safely initialize the environment using the cross-platform wrapper protocol.
+                        // If cfg has no tag, it naturally falls back to native JS 64-bit precision bounds.
+                        if (typeof initializeSimulatorEnviroment === 'function') {
+                            initializeSimulatorEnviroment(cfg);
+                        } else if (cfg.simulatorProfile) {
+                            ACTIVE_SIMULATOR_PROFILE = cfg.simulatorProfile;
+                        } else {
+                            ACTIVE_SIMULATOR_PROFILE = "NATIVE_JS_64BIT";
+                        }
+
                         // Restore UI
-                        document.getElementById('labelMode').value   = cfg.labelMode || 'dice';
-                        document.getElementById('diceMat').value     = cfg.diceMat || 'plastic';
-                        document.getElementById('surfMat').value     = cfg.surfMat || 'wood';
-                        document.getElementById('temperature').value = cfg.temperature ?? 22;
-                        document.getElementById('humidity').value    = cfg.humidity ?? 45;
-                        document.getElementById('altitude').value    = cfg.altitude ?? 0;
-                        document.getElementById('height').value      = cfg.height ?? 2.1;
-                        document.getElementById('initOmega').value   = cfg.initOmega ?? 3;
-                        document.getElementById('initTop').value     = cfg.initTop ?? 0;
-                        document.getElementById('simTime').value     = cfg.simTime ?? 12;
-						document.getElementById('showAnim').value = (cfg.showAnim !== false) ? 'true' : 'false';
+                        document.getElementById('labelMode').value   = cfg.labelMode;
+                        document.getElementById('diceMat').value     = cfg.diceMat;
+                        document.getElementById('surfMat').value     = cfg.surfMat;
+                        document.getElementById('temperature').value = cfg.temperature;
+                        document.getElementById('humidity').value    = cfg.humidity;
+                        document.getElementById('altitude').value    = cfg.altitude;
+                        document.getElementById('height').value      = cfg.height;
+                        document.getElementById('initOmega').value   = cfg.initOmega;
+                        document.getElementById('initTop').value     = cfg.initTop;
+                        document.getElementById('simTime').value     = cfg.simTime;
+                       
+                        // Handle animation flag safely
+                        document.getElementById('showAnim').value = (cfg.showAnim !== false) ? 'true' : 'false';
 
                         // Restore exact session
                         lastSession = { ...cfg };
@@ -844,13 +1123,18 @@ Click “Shuffle settings” or “Drop the dice” to start
                             seedBox.value = cfg.dropTimerMs;
                         }
 
-                        logEl.textContent = 'Exact session imported.\nClick “Drop the dice” to replay the identical simulation (same noises & labels).';
+                        // Inform the user via logs which mathematical engine is handling execution
+                        let profileMsg = (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") 
+                            ? 'Avr 32-bit Single-Precision Emulator Activated' 
+                            : 'Native JS 64-bit Double-Precision Engine Activated';
 
-						// Automatically re-run the drop so history is rebuilt
-						// and the Replay button becomes active
-						setTimeout(() => {
-							dropDice();
-						}, 50);
+                        logEl.textContent = `Exact session imported (${profileMsg}).\nClick “Drop the dice” to replay the identical simulation (same noises & labels).`;
+
+                        // Automatically re-run the drop so history is rebuilt
+                        // and the Replay button becomes active
+                        setTimeout(() => {
+                            dropDice();
+                        }, 50);
 
                     } catch (err) {
                         alert('Invalid or corrupted session file');
@@ -863,109 +1147,99 @@ Click “Shuffle settings” or “Drop the dice” to start
         }
 
         // ---------- Main drop ----------
-        function dropDice() {
-            if (animId) cancelAnimationFrame(animId);
-            replayBtn.disabled = true;
-
-			// Capture timer & freeze seed box
-			dropTimerMs = currentTimerMs;
-			seedFrozen = true;
-            //seedBox.value = noisyFactor(dropTimerMs).toFixed(6);
-            seedBox.value = dropTimerMs;
-
-            const HEIGHT = parseFloat(document.getElementById('height').value);
-            const INITIAL_TOP_FACE = parseInt(document.getElementById('initTop').value) || 0;
-            const INIT_OMEGA = parseFloat(document.getElementById('initOmega').value);
-            const DICE_MAT = document.getElementById('diceMat').value;
-            const SURF_MAT = document.getElementById('surfMat').value;
-            const TEMP = parseFloat(document.getElementById('temperature').value) || 22;
-            const HUMID = parseFloat(document.getElementById('humidity').value) || 45;
-            const ALTITUDE = parseFloat(document.getElementById('altitude').value) || 0;
-            const SIM_TIME = parseFloat(document.getElementById('simTime').value) || 12;
-            const LABEL_MODE = document.getElementById('labelMode').value;
-			const SHOW_ANIM = isShowAnim();
-
-            const SIDE = 0.05, MASS = 0.02, DT = 0.0005;
-            const HALF = SIDE / 2;
-            const I = MASS * SIDE * SIDE / 6;
-
-            const NOISE_ANGLE  = 1.5 * Math.PI / 180;
-            const NOISE_OMEGA  = 0.8;
-            const NOISE_HEIGHT = 0.01;
-            const NOISE_REST   = 0.02;
-            const NOISE_FRIC   = 0.03;
-            const NOISE_ADH    = 0.015;
-            const NOISE_ALT    = 25;
-            const NOISE_TIME   = 1.0;
-
-            // ----- Exact replay or new generation -----
-            let noiseAngle, noiseOmega, noiseHeight, noiseRest, noiseFric, noiseAdh, noiseAlt, noiseTime;
-
-            if (useExactSession && lastSession) {
-                noiseAngle  = lastSession.noiseAngle;
-                noiseOmega  = lastSession.noiseOmega;
-                noiseHeight = lastSession.noiseHeight;
-                noiseRest   = lastSession.noiseRest;
-                noiseFric   = lastSession.noiseFric;
-                noiseAdh    = lastSession.noiseAdh;
-                noiseAlt    = lastSession.noiseAlt;
-                noiseTime   = lastSession.noiseTime;
-                faceLabels  = [...lastSession.faceLabels];
-                dropTimerMs = lastSession.dropTimerMs;
-                //seedBox.value = noisyFactor(dropTimerMs).toFixed(6);
-                seedBox.value = dropTimerMs;
-            } else {
+		function dropDice() {
+			if (animId) cancelAnimationFrame(animId);
+			replayBtn.disabled = true;
+		
+			// ==============================================================================
+			// 1. MUTABLE METRIC REGISTER BOUNDS (LEXICAL TOP-DECLARATION)
+			// ==============================================================================
+			let HEIGHT, INITIAL_TOP_FACE, INIT_OMEGA, DICE_MAT, SURF_MAT, TEMP, HUMID, ALTITUDE, SIM_TIME, LABEL_MODE, SHOW_ANIM;
+			let noiseAngle, noiseOmega, noiseHeight, noiseRest, noiseFric, noiseAdh, noiseAlt, noiseTime;
+			let frozenNoisyFactor;
+		
+			console.log(`[SYS] Precision Engine Locked to Profile: ${ACTIVE_SIMULATOR_PROFILE}`);
+		
+			// Core physical dimensions & system constraints
+			const SIDE = Unified_Math.f32(0.05);
+			const MASS = Unified_Math.f32(0.02);
+			const DT = Unified_Math.f32(0.0005);
+			const HALF = Unified_Math.f32(SIDE / 2);
+			const I    = Unified_Math.f32(0.000008333);          // ← exact Bascom constant
+		
+			const NOISE_ANGLE  = 1.5 * Math.PI / 180;
+			const NOISE_OMEGA  = 0.8;
+			const NOISE_HEIGHT = 0.01;
+			const NOISE_REST   = 0.02;
+			const NOISE_FRIC   = 0.03;
+			const NOISE_ADH    = 0.015;
+			const NOISE_ALT    = 25;
+			const NOISE_TIME   = 1.0;
+		
+			// ==============================================================================
+			// 2. PARALLEL GATE EVALUATION & STACK PROTECTION RECONSTRUCTION
+			// ==============================================================================
+			if (useExactSession && lastSession) {
+				// Recover parameters strictly from your static configuration buffers
+				noiseAngle  = Unified_Math.val(lastSession.noiseAngle);
+				noiseOmega  = Unified_Math.val(lastSession.noiseOmega);
+				noiseHeight = Unified_Math.val(lastSession.noiseHeight);
+				noiseRest   = Unified_Math.val(lastSession.noiseRest);
+				noiseFric   = Unified_Math.val(lastSession.noiseFric);
+				noiseAdh    = Unified_Math.val(lastSession.noiseAdh);
+				noiseAlt    = Unified_Math.val(lastSession.noiseAlt);
+				noiseTime   = Unified_Math.val(lastSession.noiseTime);
+				dropTimerMs = lastSession.dropTimerMs;
+				
+				faceLabels    = [...lastSession.faceLabels];
+				seedBox.value = dropTimerMs;
+		
+				// Synchronize background material variables and text constants
+				LABEL_MODE       = lastSession.labelMode;
+				DICE_MAT         = lastSession.diceMat;
+				SURF_MAT         = lastSession.surfMat;
+				TEMP             = Unified_Math.f32(parseFloat(lastSession.temperature));
+				HUMID            = Unified_Math.f32(parseFloat(lastSession.humidity));
+				ALTITUDE         = Unified_Math.f32(parseFloat(lastSession.altitude));
+				HEIGHT           = Unified_Math.f32(parseFloat(lastSession.height));
+				INITIAL_TOP_FACE = parseInt(lastSession.initTop);
+				INIT_OMEGA       = Unified_Math.f32(parseFloat(lastSession.initOmega)); 
+				SIM_TIME         = Unified_Math.f32(parseFloat(lastSession.simTime));
+				SHOW_ANIM        = lastSession.showAnim;
+		
+				// Freeze noisy factor for log rendering without executing a pointer-draining re-calculation
+				frozenNoisyFactor = Unified_Math.val(noisyFactor(dropTimerMs));
+		
+			} else {
+				// Capture active layout metrics from the DOM input elements
+				dropTimerMs = currentTimerMs;
+				seedFrozen = true;
+				seedBox.value = dropTimerMs;
+		
+				HEIGHT           = parseFloat(document.getElementById('height').value);
+				INITIAL_TOP_FACE = parseInt(document.getElementById('initTop').value);
+				INIT_OMEGA       = parseFloat(document.getElementById('initOmega').value);
+				DICE_MAT         = document.getElementById('diceMat').value;
+				SURF_MAT         = document.getElementById('surfMat').value;
+				TEMP             = parseFloat(document.getElementById('temperature').value);
+				HUMID            = parseFloat(document.getElementById('humidity').value);
+				ALTITUDE         = parseFloat(document.getElementById('altitude').value);
+				SIM_TIME         = parseFloat(document.getElementById('simTime').value);
+				LABEL_MODE       = document.getElementById('labelMode').value;
+				SHOW_ANIM        = isShowAnim();
+		
+				// Compute noisy factor exactly once before advancing tracking pointers
+				frozenNoisyFactor = Unified_Math.val(noisyFactor(dropTimerMs));
+		
+				// Pull noise offsets natively from your pseudo-random data channels
 				noiseAngle  = nRandRange(-NOISE_ANGLE,  NOISE_ANGLE);
-                noiseOmega  = nRandRange(-NOISE_OMEGA,  NOISE_OMEGA);
-                noiseHeight = nRandRange(-NOISE_HEIGHT, NOISE_HEIGHT);
-                noiseRest   = nRandRange(-NOISE_REST,   NOISE_REST);
-                noiseFric   = nRandRange(-NOISE_FRIC,   NOISE_FRIC);
-                noiseAdh    = nRandRange(-NOISE_ADH,    NOISE_ADH);
-                noiseAlt    = nRandRange(-NOISE_ALT,    NOISE_ALT);
-                noiseTime   = nRandRange(-NOISE_TIME,   NOISE_TIME);
-				
-                /*
-				// Fill the case list
-				let noiseCases = [1,2,3,4,5,6,7,8];
-				
-				// Loop until all cases are consumed
-				while (noiseCases.length > 0) {
-					// Pick a random index
-					let idx = Math.floor(main_random() * noiseCases.length);
-					let selected = noiseCases[idx];
-				
-					// Execute one noise update
-					switch (selected) {
-						case 1:
-							noiseAngle  = nRandRange(-NOISE_ANGLE,  NOISE_ANGLE);
-							break;
-						case 2:
-							noiseOmega  = nRandRange(-NOISE_OMEGA,  NOISE_OMEGA);
-							break;
-						case 3:
-							noiseHeight = nRandRange(-NOISE_HEIGHT, NOISE_HEIGHT);
-							break;
-						case 4:
-							noiseRest   = nRandRange(-NOISE_REST,   NOISE_REST);
-							break;
-						case 5:
-							noiseFric   = nRandRange(-NOISE_FRIC,   NOISE_FRIC);
-							break;
-						case 6:
-							noiseAdh    = nRandRange(-NOISE_ADH,    NOISE_ADH);
-							break;
-						case 7:
-							noiseAlt    = nRandRange(-NOISE_ALT,    NOISE_ALT);
-							break;
-						case 8:
-							noiseTime   = nRandRange(-NOISE_TIME,   NOISE_TIME);
-							break;
-					}
-					// Remove the executed case
-					noiseCases.splice(idx, 1);
-				}
-				*/
-
+				noiseOmega  = nRandRange(-NOISE_OMEGA,  NOISE_OMEGA);
+				noiseHeight = nRandRange(-NOISE_HEIGHT, NOISE_HEIGHT);
+				noiseRest   = nRandRange(-NOISE_REST,   NOISE_REST);
+				noiseFric   = nRandRange(-NOISE_FRIC,   NOISE_FRIC);
+				noiseAdh    = nRandRange(-NOISE_ADH,    NOISE_ADH);
+				noiseAlt    = nRandRange(-NOISE_ALT,    NOISE_ALT);
+				noiseTime   = nRandRange(-NOISE_TIME,   NOISE_TIME);
 
 				// Pool of labels
 				let pool;
@@ -976,75 +1250,72 @@ Click “Shuffle settings” or “Drop the dice” to start
 				} else {
 					pool = [1, 2, 3, 4, 5, 6];
 				}
-	
-				// Gr: Select labels
-				/*
-                for (let i = pool.length - 1; i > 0; i--) {
-                    const j = nRandInt(0, i);
-                    [pool[i], pool[j]] = [pool[j], pool[i]];
-                }
-                faceLabels = pool.slice(0, 4);
-				*/
-			
-				// Co: Select labels
-				// Proper unbiased sampling of 4 items without replacement
+				
+				// Perform the synchronized non-replacement splice collapse
 				const faceLabelsLocal = [];
 				const temp = [...pool];
-				
 				for (let i = 0; i < 4; i++) {
 					const j = nRandInt(0, temp.length - 1);
 					faceLabelsLocal.push(temp[j]);
-					temp.splice(j, 1); // remove selected item
+					temp.splice(j, 1);
 				}
-
 				faceLabels = faceLabelsLocal;
-            }
+			}
+		
+			// ==============================================================================
+			// 3. UNIFIED DERIVED CONSTANTS & STRUCTURAL PHYSICS VARIABLE CALCULATIONS
+			// ==============================================================================
 
-            const G = gravityAtAltitude(ALTITUDE + noiseAlt);
-            const MAX_TIME = Math.max(3, SIM_TIME + noiseTime);
-
-            // Materials
-            const [brd, bfd, bad] = DICE_MATERIALS[DICE_MAT];
-            const [brs, bfs, bas] = SURFACE_MATERIALS[SURF_MAT];
-
-            const tempFactor  = 1.0 - (TEMP - 20) * 0.004;
-            const humidFactor = 1.0 + (HUMID - 40) * 0.006;
-
-            let baseRest = 0.5 * (brd + brs) * Math.max(0.6, tempFactor);
-            let baseFric = 0.5 * (bfd + bfs) * Math.max(0.5, tempFactor) * Math.min(1.6, humidFactor);
-            let baseAdh  = 0.5 * (bad + bas) * Math.min(2.0, humidFactor);
-
-            const baseAngle = angleForTopFace(INITIAL_TOP_FACE);
-            const initAngle = baseAngle + noiseAngle;
-            const initOmega = INIT_OMEGA + noiseOmega;
-            const height    = HEIGHT + noiseHeight;
-
-            let rest = Math.max(0.05, Math.min(0.95, baseRest + noiseRest));
-            let fric = Math.max(0.05, baseFric + noiseFric);
-            let adh  = Math.max(0.0,  baseAdh  + noiseAdh);
-
-            let state = [0, height, initAngle, 0, 0, initOmega];
-
-            // Store exact session for future export / replay
-            lastSession = {
-                dropTimerMs,
-                labelMode: LABEL_MODE,
-                faceLabels: [...faceLabels],
-                noiseAngle, noiseOmega, noiseHeight,
-                noiseRest, noiseFric, noiseAdh,
-                noiseAlt, noiseTime,
-                diceMat: DICE_MAT,
-                surfMat: SURF_MAT,
-                temperature: TEMP,
-                humidity: HUMID,
-                altitude: ALTITUDE,
-                height: HEIGHT,
-                initOmega: INIT_OMEGA,
-                initTop: INITIAL_TOP_FACE,
-                simTime: SIM_TIME,
-				showAnim: isShowAnim()
-            };
-            useExactSession = false; // next normal drop will generate new values
+			//const G = gravityAtAltitude(Unified_Math.val(ALTITUDE + noiseAlt));
+			const totalAltitude = Unified_Math.val(ALTITUDE + noiseAlt);
+			const G = gravityAtAltitude(Unified_Math.f32(totalAltitude));
+			const MAX_TIME = Unified_Math.f32(Unified_Math.max(3, Unified_Math.val(SIM_TIME + noiseTime)));
+		
+			// Materials configuration matrices lookups
+			const [bfd, brd, bad] = DICE_MATERIALS[DICE_MAT].map(v => Unified_Math.val(v)); // fric, rest, adh
+			const [bfs, brs, bas] = SURFACE_MATERIALS[SURF_MAT].map(v => Unified_Math.val(v));
+			
+			const tempFactor  = Unified_Math.val(1.0 - Unified_Math.val(Unified_Math.val(TEMP - 20) * 0.004));
+			const humidFactor = Unified_Math.val(1.0 + Unified_Math.val(Unified_Math.val(HUMID - 40) * 0.006));
+		
+			let baseRest = Unified_Math.f32(Unified_Math.val(0.5 * Unified_Math.val(brd + brs) * Unified_Math.max(0.6, tempFactor)));
+			let baseFric = Unified_Math.f32(Unified_Math.val(0.5 * Unified_Math.val(bfd + bfs) * Unified_Math.max(0.5, tempFactor) * Unified_Math.min(1.6, humidFactor)));
+			let baseAdh  = Unified_Math.f32(Unified_Math.val(0.5 * Unified_Math.val(bad + bas) * Unified_Math.min(2.0, humidFactor)));
+		
+			const baseAngle = Unified_Math.val(angleForTopFace(INITIAL_TOP_FACE));
+			const initAngle = Unified_Math.val(baseAngle + noiseAngle);
+			const initOmega = Unified_Math.val(INIT_OMEGA + noiseOmega); // Evaluates cleanly!
+			const height    = Unified_Math.val(HEIGHT + noiseHeight);
+		
+			let rest = Unified_Math.f32(Unified_Math.max(0.05, Unified_Math.min(0.95, Unified_Math.val(baseRest + noiseRest))));
+			let fric = Unified_Math.f32(Unified_Math.max(0.05, Unified_Math.val(baseFric + noiseFric)));
+			let adh  = Unified_Math.f32(Unified_Math.max(0.0,  Unified_Math.val(baseAdh  + noiseAdh)));
+		
+			// state vector allocated safely only AFTER all properties are calculated
+			//let state = [0.0, height, initAngle, 0.0, 0.0, initOmega].map(v => Unified_Math.val(v));
+			let state = (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE")
+				? new Float32Array([0, height, initAngle, 0, 0, initOmega])
+				: [0, height, initAngle, 0, 0, initOmega];
+		
+			lastSession = {
+				dropTimerMs,
+				labelMode: LABEL_MODE,
+				faceLabels: [...faceLabels],
+				noiseAngle, noiseOmega, noiseHeight,
+				noiseRest, noiseFric, noiseAdh,
+				noiseAlt, noiseTime,
+				diceMat: DICE_MAT,
+				surfMat: SURF_MAT,
+				temperature: TEMP,
+				humidity: HUMID,
+				altitude: ALTITUDE,
+				height: HEIGHT,
+				initOmega: INIT_OMEGA,
+				initTop: INITIAL_TOP_FACE,
+				simTime: SIM_TIME,
+				showAnim: SHOW_ANIM
+			};
+			useExactSession = false;
 
             // ----- Log -----
             let log = '================================================\n';
@@ -1053,6 +1324,7 @@ Click “Shuffle settings” or “Drop the dice” to start
             log += `Label mode                 : ${LABEL_MODE}\n`;
             log += `Random mode                : ${randMode.value}\n`;
             log += `Noise mode                 : ${noiseMode.value}\n`;
+            log += `Simulator mode             : ${ACTIVE_SIMULATOR_PROFILE}\n`;
             log += `Timer (ms) at drop         : ${dropTimerMs}\n`;
             log += `Counter at drop            : ${noisyCallCounter}\n`;
             log += `Noisy factor               : ${noisyFactor(dropTimerMs).toFixed(6)}\n`;
@@ -1062,7 +1334,9 @@ Click “Shuffle settings” or “Drop the dice” to start
             log += `Initial label on top       : ${faceLabels[INITIAL_TOP_FACE]}\n`;
             log += `Initial label on bottom    : ${faceLabels[(INITIAL_TOP_FACE + 2) % 4]}\n`;
             log += `\nDrop height (center)       : ${height.toFixed(4)} m\n`;
-            log += `Initial angle              : ${(initAngle*180/Math.PI).toFixed(2)}°\n`;
+			log += `Unified_Math.PI            : ${Unified_Math.pii()}°\n`;
+            log += `Base angle                 : ${(baseAngle).toFixed(2)}°\n`;
+            log += `Initial angle              : ${(initAngle*180/Unified_Math.pii()).toFixed(2)}°\n`;
             log += `Initial spin (Omega)       : ${initOmega.toFixed(3)} rad/s\n`;
             log += `\nDice material              : ${DICE_MAT}\n`;
             log += `Surface material           : ${SURF_MAT}\n`;
@@ -1076,7 +1350,7 @@ Click “Shuffle settings” or “Drop the dice” to start
             log += `Effective friction         : ${fric.toFixed(3)}\n`;
             log += `Effective adhesion         : ${adh.toFixed(3)}\n`;
             log += `\nActual noise applied (timer-driven):\n`;
-            log += `  Angle offset      : ${(noiseAngle*180/Math.PI).toFixed(3)}°\n`;
+            log += `  Angle offset      : ${(noiseAngle*180/Unified_Math.pii()).toFixed(3)}°\n`;
             log += `  Spin offset       : ${noiseOmega.toFixed(3)} rad/s\n`;
             log += `  Height offset     : ${noiseHeight.toFixed(4)} m\n`;
             log += `  Restitution offset: ${noiseRest.toFixed(4)}\n`;
@@ -1088,18 +1362,32 @@ Click “Shuffle settings” or “Drop the dice” to start
 
 
             // Physics loop
-            history = [];
-            let t = 0, settled = 0;
-            while (t < MAX_TIME) {
+            // ==============================================================================
+            // UNIFIED COMPLIANT KINEMATIC INTEGRATION ENGINE LOOP
+            // ==============================================================================
+            // Hardcoded lens magnification constants matching your updated constants definitions
+            const DT_ZOOM_IN_SLOW = 0.0005;
+            const DT_ZOOM_IN_FAST = 0.0007;
+            const DT_ZOOM_OUT     = 0.001;
+            const RD_TO_IMPACT    = 0.07;
+            const RT_TO_STOP      = 2.25;
 
-                // 1. STATE IDENTIFICATION GENERATION
-                let remainingSim = MAX_TIME - RT_TO_STOP;
+            history = [];
+            let t = 0.0;
+            let settled = 0;
+            
+            // Map the initial starting array explicitly down to 32-bit single boundaries
+            state = state.map(v => Unified_Math.val(v));
+
+            while (t < MAX_TIME) {
+                // 1. DYNAMIC LENS ZOOM IDENTIFICATION (Gated strictly via Unified_Math)
+                let remainingSim = Unified_Math.val(Unified_Math.val(MAX_TIME) - RT_TO_STOP);
                 let zoomin_by_time = (t >= remainingSim);
                 let zoomin_by_dist = (state[1] <= RD_TO_IMPACT); // state[1] is center Y
 
                 let activeDT;
 
-                // 2. GEOMETRIC & DIRECTIONAL LIGHTWEIGHT SELECTION
+                // 2. GEOMETRIC STEP SIZE SELECTION
                 if (zoomin_by_time && zoomin_by_dist) {
                     activeDT = DT_ZOOM_IN_SLOW;
                 } else if (zoomin_by_time) {
@@ -1109,66 +1397,145 @@ Click “Shuffle settings” or “Drop the dice” to start
                 } else {
                     activeDT = DT_ZOOM_OUT;
                 }
+                activeDT = Unified_Math.val(activeDT);
 
-                // 1. Apply Gravitational Pull directly to Vertical Velocity (Vy)
-                state[4] -= G * activeDT;
-                // 2. Integrate Linear X Position using Linear X Velocity (Vx)
-                state[0] += state[3] * activeDT;
-                // 3. Integrate Linear Y Position using Vertical Velocity (Vy)
-                state[1] += state[4] * activeDT;
-                // 4. Integrate Angular Orientation using Angular Velocity (omega)
-                state[2] += state[5] * activeDT;
+                // ------------------------------------------------------------
+                // KINEMATIC STEP INTEGRATIONS (AVR WRITE-BACK ALIGNED)
+                // ------------------------------------------------------------
+                // 1. Apply Gravitational Pull directly to Vertical Velocity: vy -= g * dt
+                ///let gravStep = Unified_Math.val(Unified_Math.val(G) * activeDT);
+                ///state[4] = Unified_Math.val(Unified_Math.val(state[4]) - gravStep);
+				// 1. Gravity
+				///state[4] = f32(state[4] - f32(G * activeDT));
 
-                // Evaluate structural collisions checks (Direct Global Manipulation)
-                // We keep state references continuous on every iteration to guarantee the floor boundary 
-                // cannot be bypassed by variable fragmentation or sudden fast-forward jumps.
-                [state] = collideAndResolve(state, rest, fric, adh, MASS, I, HALF);
-                
-                // Record pristine frame tracking properties directly to global history array
-                history.push([...state]);
+                // 2. Integrate Linear X Position: x += vx * dt
+                ///let dx = Unified_Math.val(Unified_Math.val(state[3]) * activeDT);
+                ///state[0] = Unified_Math.val(Unified_Math.val(state[0]) + dx);
 
-                // Fresh combined velocity tracking state
-                const speed = Math.hypot(state[3], state[4]) + Math.abs(state[5]) * SIDE;
+                // 3. Integrate Linear Y Position: y += vy * dt
+                ///let dy = Unified_Math.val(Unified_Math.val(state[4]) * activeDT);
+                ///state[1] = Unified_Math.val(Unified_Math.val(state[1]) + dy);
 
-                //============================================================
-                // UPGRADED V1.2 HYBRID SLEEP OUT CHECK
-                //============================================================
-                // If the die center Y drops under the 1mm floor boundary zone 
-                // and total remaining energy drops below 0.05, put it to sleep!
+                // 4. Integrate Angular Orientation: th += om * dt
+                ///let dTheta = Unified_Math.val(Unified_Math.val(state[5]) * activeDT);
+                ///state[2] = Unified_Math.val(Unified_Math.val(state[2]) + dTheta);
+
+				// 2-4. Integrate (exact order)
+				///state[0] = f32(state[0] + f32(state[3] * activeDT));
+				///state[1] = f32(state[1] + f32(state[4] * activeDT));
+				///state[2] = f32(state[2] + f32(state[5] * activeDT));
+				
+				// 1. Gravity
+				{
+					let tmp = Unified_Math.f32(G * activeDT);
+					state[4] = Unified_Math.f32(state[4] - tmp);
+				}
+				// 2. X
+				{
+					let tmp = Unified_Math.f32(state[3] * activeDT);
+					state[0] = Unified_Math.f32(state[0] + tmp);
+				}
+				// 3. Y
+				{
+					let tmp = Unified_Math.f32(state[4] * activeDT);
+					state[1] = Unified_Math.f32(state[1] + tmp);
+				}
+				// 4. Theta
+				{
+					let tmp = Unified_Math.f32(state[5] * activeDT);
+					state[2] = Unified_Math.f32(state[2] + tmp);
+				}
+
+                // 5. Evaluate structural collisions check layers
+				/*
+				let activeIdx = -1; 
+				if (activeDT !== DT_ZOOM_OUT) {
+					let [resState, collided] = collideAndResolve(state, rest, fric, adh, MASS, I, HALF);
+					state = resState.map(v => Unified_Math.val(v));
+					if (collided) activeIdx = 1; // Resets state flags cleanly
+				} else {
+					activeIdx = 0; // EXACT PARITY MATCH: Resets internal contact variable register to 0
+				}
+				
+				history.push([...state]);
+		
+				let speedSq = Unified_Math.val(Unified_Math.val(state[3] * state[3]) + Unified_Math.val(state[4] * state[4]));
+				let linSpeed = Unified_Math.val(Unified_Math.sqrt(speedSq));
+				let rotSpeed = Unified_Math.val(Unified_Math.val(Unified_Math.abs(state[5])) * Unified_Math.val(SIDE));
+				let speed = Unified_Math.val(linSpeed + rotSpeed);
+				*/
+				
+				// ***** CONDITIONAL COLLISION (matches Bascom exactly) *****
+				if (activeDT !== DT_ZOOM_OUT) {
+					[state] = collideAndResolve(state, rest, fric, adh, MASS, I, HALF);
+				}
+
+				// Always push a plain array so the drawing code works regardless of Float32Array
+				history.push(Array.from(state));
+				
+				// speed calculation also forced to f32
+				// grok edition
+				let speed = Unified_Math.f32(
+					Unified_Math.f32(Math.sqrt(Unified_Math.f32(Unified_Math.f32(state[3]*state[3]) + Unified_Math.f32(state[4]*state[4])))) +
+					Unified_Math.f32(Math.abs(Unified_Math.f32(state[5])) * SIDE)
+				);				
+				/*
+				// working edition
+				let speed = Unified_Math.f32(
+					Unified_Math.f32(Math.hypot(Unified_Math.f32(state[3]), Unified_Math.f32(state[4]))) +
+					Unified_Math.f32(Math.abs(Unified_Math.f32(state[5])) * SIDE)
+				);
+				*/
+				
+                // ============================================================
+                // UPGRADED V1.2 HYBRID SLEEP OUT CHECK (AVR PROFILE INSULATED)
+                // ============================================================
                 if (state[1] < 0.026) {
                     if (speed < 0.05) {
                         break;
                     }
                 }
 
-                //============================================================
+                // ============================================================
                 // Settlement Criteria Evaluation Check (Standard Mode Fallback)
-                //============================================================
-                if (speed < 0.01 && state[1] < HALF + 0.01) {
-                    if (++settled > 100) break; // Synced with the 100 frame cap adjustment
+                // ============================================================
+                let groundBoundary = Unified_Math.val(HALF + 0.01);
+                if (speed < 0.01 && state[1] < groundBoundary) {
+                    settled++;
+                    if (settled > 100) break; 
                 } else {
                     settled = 0;
                 }
 
-                // Step simulation time counter forward dynamically
-                t += activeDT;
+                // Step simulation duration timeline dynamically
+                t = Unified_Math.val(t + activeDT);
             }
 
+            // ==============================================================================
+            // POST-PROCESSOR RESULT EXTRACTION TERMINAL WINDOW
+            // ==============================================================================
+			const finalTheta = Unified_Math.val(state[2]);
+			const finalTopG  = faceFromAngle(finalTheta, 'top');
+			const finalBotG  = faceFromAngle(finalTheta, 'bottom');
+			finalTopLab      = faceLabels[finalTopG]; 
+			const finalBotLab = faceLabels[finalBotG];
 
-            const finalTheta = state[2];
-            const finalTopG  = faceFromAngle(finalTheta, 'top');
-            const finalBotG  = faceFromAngle(finalTheta, 'bottom');
-            finalTopLab = faceLabels[finalTopG];
-            const finalBotLab = faceLabels[finalBotG];
+            // Replicate BASCOM's modulo angle check formatting precisely for logs
+            const twoPi = Unified_Math.val(2 * Unified_Math.pii());
+            let displayAngle = Unified_Math.val(finalTheta % twoPi);
+            displayAngle = Unified_Math.val(displayAngle + twoPi);
+            displayAngle = Unified_Math.val(displayAngle % twoPi);
+            let displayDeg = Unified_Math.val(Unified_Math.val(displayAngle * 180) / Unified_Math.val(Unified_Math.pii()));
 
             log += '\n================================================\n';
             log += 'RESULT\n';
             log += '================================================\n';
             log += `Simulation time            : ${t.toFixed(2)} s\n`;
+			log += `Final theta (radians)      : ${state[2]}\n`;
             log += `Final geometric top face   : ${finalTopG}\n`;
             log += `Final label on top         : ${finalTopLab}\n`;
             log += `Final label on bottom      : ${finalBotLab}\n`;
-            log += `Final angle                : ${(((finalTheta%(2*Math.PI))+2*Math.PI)%(2*Math.PI)*180/Math.PI).toFixed(1)}°\n`;
+            log += `Final angle                : ${displayDeg.toFixed(1)}°\n`;
             log += '================================================\n';
             log += `>>>  TOP FACE SHOWS: ${finalTopLab}  <<<\n`;
             log += '================================================\n';
@@ -1201,9 +1568,12 @@ Click “Shuffle settings” or “Drop the dice” to start
 			const SIM_TIME = parseFloat(document.getElementById('simTime').value) || 12;
 			const LABEL_MODE = document.getElementById('labelMode').value;
 		
-			const SIDE = 0.05, MASS = 0.02, DT = 0.0005;
-			const HALF = SIDE / 2;
-			const I = MASS * SIDE * SIDE / 6;
+			// Core physical dimensions & system constraints
+			const SIDE = Unified_Math.f32(0.05);
+			const MASS = Unified_Math.f32(0.02);
+			const DT = Unified_Math.f32(0.0005);
+			const HALF = Unified_Math.f32(SIDE / 2);
+			const I    = Unified_Math.f32(0.000008333);          // ← exact Bascom constant
 		
 			const NOISE_ANGLE  = 1.5 * Math.PI / 180;
 			const NOISE_OMEGA  = 0.8;
@@ -1224,52 +1594,6 @@ Click “Shuffle settings” or “Drop the dice” to start
 			const noiseAlt    = nRandRange(-NOISE_ALT,    NOISE_ALT);
 			const noiseTime   = nRandRange(-NOISE_TIME,   NOISE_TIME);
 						
-			/*
-			// Define all noise variables
-			let noiseAngle, noiseOmega, noiseHeight, noiseRest;
-			let noiseFric, noiseAdh, noiseAlt, noiseTime;
-			
-			// Fill the case list
-			let noiseCases = [1,2,3,4,5,6,7,8];
-			
-			// Loop until all cases are consumed
-			while (noiseCases.length > 0) {
-				// Pick a random index
-				let idx = Math.floor(main_random() * noiseCases.length);
-				let selected = noiseCases[idx];
-			
-				// Execute one noise update
-				switch (selected) {
-					case 1:
-						noiseAngle  = nRandRange(-NOISE_ANGLE,  NOISE_ANGLE);
-						break;
-					case 2:
-						noiseOmega  = nRandRange(-NOISE_OMEGA,  NOISE_OMEGA);
-						break;
-					case 3:
-						noiseHeight = nRandRange(-NOISE_HEIGHT, NOISE_HEIGHT);
-						break;
-					case 4:
-						noiseRest   = nRandRange(-NOISE_REST,   NOISE_REST);
-						break;
-					case 5:
-						noiseFric   = nRandRange(-NOISE_FRIC,   NOISE_FRIC);
-						break;
-					case 6:
-						noiseAdh    = nRandRange(-NOISE_ADH,    NOISE_ADH);
-						break;
-					case 7:
-						noiseAlt    = nRandRange(-NOISE_ALT,    NOISE_ALT);
-						break;
-					case 8:
-						noiseTime   = nRandRange(-NOISE_TIME,   NOISE_TIME);
-						break;
-				}
-				// Remove the executed case
-				noiseCases.splice(idx, 1);
-			}
-			*/
-
 			// Pool of labels
 			let pool;
 			if (LABEL_MODE === 'bin') {
@@ -1280,15 +1604,6 @@ Click “Shuffle settings” or “Drop the dice” to start
 				pool = [1, 2, 3, 4, 5, 6];
 			}
 
-			// Gr: Select labels
-			/*
-			for (let i = pool.length - 1; i > 0; i--) {
-				const j = nRandInt(0, i);
-				[pool[i], pool[j]] = [pool[j], pool[i]];
-			}
-			const faceLabelsLocal = pool.slice(0, 4);
-			*/
-		
 			// Co: Select labels
 			// Proper unbiased sampling of 4 items without replacement
 			const faceLabelsLocal = [];
@@ -1348,17 +1663,38 @@ Click “Shuffle settings” or “Drop the dice” to start
 				}
 
 				// Apply Gravitational Pull and Kinematic Position Integration using activeDT
-				state[4] -= G * activeDT;
-				state[0] += state[3] * activeDT;
-				state[1] += state[4] * activeDT;
-				state[2] += state[5] * activeDT;
+				// 1. Gravity
+				{
+					let tmp = Unified_Math.f32(G * activeDT);
+					state[4] = Unified_Math.f32(state[4] - tmp);
+				}
+				// 2. X
+				{
+					let tmp = Unified_Math.f32(state[3] * activeDT);
+					state[0] = Unified_Math.f32(state[0] + tmp);
+				}
+				// 3. Y
+				{
+					let tmp = Unified_Math.f32(state[4] * activeDT);
+					state[1] = Unified_Math.f32(state[1] + tmp);
+				}
+				// 4. Theta
+				{
+					let tmp = Unified_Math.f32(state[5] * activeDT);
+					state[2] = Unified_Math.f32(state[2] + tmp);
+				}
 		
 				// Evaluate structural collisions checks safely
-				// Unconditional execution protects array references from dropped assignments
-				[state] = collideAndResolve(state, rest, fric, adh, MASS, I, HALF);
-		
-				// Fresh combined velocity tracking state
-				const speed = Math.hypot(state[3], state[4]) + Math.abs(state[5]) * SIDE;
+				if (activeDT !== DT_ZOOM_OUT) {
+					[state] = collideAndResolve(state, rest, fric, adh, MASS, I, HALF);
+				}
+
+				// speed calculation also forced to f32
+				let speed = Unified_Math.f32(
+					Unified_Math.f32(Math.hypot(Unified_Math.f32(state[3]), Unified_Math.f32(state[4]))) +
+					Unified_Math.f32(Math.abs(Unified_Math.f32(state[5])) * SIDE)
+				);
+
 
 				//============================================================
 				// UPGRADED V1.2 HYBRID SLEEP OUT CHECK
