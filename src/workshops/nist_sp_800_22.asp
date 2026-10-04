@@ -603,8 +603,8 @@
 		}
 
 		function clearAll() {
-			bitsInput.value = "";
-			bitsConverted.value = "";
+			// bitsInput.value = "";
+			// bitsConverted.value = "";
 
 			resultsBody.innerHTML = ""; // clear
 			document.getElementById("meaningBody").innerHTML = '';

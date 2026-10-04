@@ -327,8 +327,8 @@ Click “Shuffle settings” or “Drop the dice” to start
 		const DT_ZOOM_IN_SLOW = 0.0005;
 		const DT_ZOOM_IN_FAST = 0.0007;
 		const DT_ZOOM_OUT     = 0.001; 
-		const RD_TO_IMPACT    = 0.07;
-		const RT_TO_STOP      = 2.25;
+		const RD_TO_IMPACT    = 0.07;				// 7 cm
+		const RT_TO_STOP      = 1.25;
 
         // ---------- Globals ----------
         let animId = null;
@@ -616,7 +616,7 @@ Click “Shuffle settings” or “Drop the dice” to start
 		// ==============================================================================
 		// SYSTEM STATE DESIGNATION FLAGS (Set globally during JSON configuration parse)
 		// ==============================================================================
-		let ACTIVE_SIMULATOR_PROFILE = "NATIVE_JS_64BIT"; 	// Fallback default state
+		let ACTIVE_SIMULATOR_PROFILE = "WEB_JS_64BIT"; 	// Fallback default state
 		
 		/**
 		 * Parses the incoming JSON session profile tag to lock down execution constraints.
@@ -625,121 +625,203 @@ Click “Shuffle settings” or “Drop the dice” to start
 		function initializeSimulatorEnviroment(sessionJson) {
 			if (sessionJson && sessionJson.simulatorProfile) {
 				ACTIVE_SIMULATOR_PROFILE = sessionJson.simulatorProfile;
-				console.log(`[SYS] Precision Engine Locked to Profile: ${ACTIVE_SIMULATOR_PROFILE}`);
-			} else {
-				ACTIVE_SIMULATOR_PROFILE = "NATIVE_JS_64BIT";
+			} 
+			else 
+			{
+				ACTIVE_SIMULATOR_PROFILE = "WEB_JS_64BIT";
 			}
+			console.log(`[SYS] Precision Engine Locked to Profile: ${ACTIVE_SIMULATOR_PROFILE}`);
 		}
 
 		// ==============================================================================
-		// GLOBAL PRECISION CALIBRATION ENGINE (UPDATED FOR MULTI-BIT LOCKING)
+		// GLOBAL PRECISION CALIBRATION ENGINE (WITH COMPLIANT ATOMIC REGISTER EMULATION)
 		// ==============================================================================
+		//var ACTIVE_SIMULATOR_PROFILE = "IEEE_754_32BIT"; 
+		
 		var Unified_Math = {
 			SQRT2: Math.SQRT2,
 		
 			f32: function(x) {
-				return (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE")
-					? Math.fround(x)
-					: x;
+				return (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") ? Math.fround(x) : x;
 			},
-
+		
+			/**
+			 * Internal Assembly-Level Software Float32 Emulator, based on IEEE_754 by manually shifting
+			 * mantissas and discarding low-order residual bits (eliminating standard 64-bit FPU guard bits).
+			 */
+			_avrCoreMath: function(a, b, operation) {
+				let fA = Math.fround(a);
+				let fB = Math.fround(b);
+		
+				if (fA === 0) return (operation === 'sub') ? Math.fround(-fB) : (operation === 'mul' || operation === 'div' ? 0 : fB);
+				if (fB === 0) return (operation === 'div') ? Infinity : fA;
+		
+				let buf = new Float32Array(2);
+				let iView = new Int32Array(buf.buffer);
+				buf[0] = fA;
+				buf[1] = fB;
+		
+				let bits1 = iView[0];
+				let bits2 = iView[1];
+		
+				let sign1 = (bits1 >> 31) & 1;
+				let sign2 = (bits2 >> 31) & 1;
+				let exp1  = (bits1 >> 23) & 0xFF;
+				let exp2  = (bits2 >> 23) & 0xFF;
+				let mant1 = (bits1 & 0x7FFFFF) | 0x800000;
+				let mant2 = (bits2 & 0x7FFFFF) | 0x800000;
+		
+				if (operation === 'add' || operation === 'sub') {
+					let sVal1 = sign1 ? -mant1 : mant1;
+					let sVal2 = sign2 ? -mant2 : mant2;
+					if (operation === 'sub') sVal2 = -sVal2;
+		
+					if (exp1 >= exp2) {
+						let shift = exp1 - exp2;
+						if (shift > 24) sVal2 = 0;
+						else sVal2 = sVal2 >> shift; 
+						
+						let resMant = sVal1 + sVal2;
+						let resSign = resMant < 0 ? 1 : 0;
+						resMant = Math.abs(resMant);
+						if (resMant === 0) return 0.0;
+		
+						while (resMant >= 0x1000000) { resMant >>= 1; exp1++; }
+						while (resMant < 0x800000 && exp1 > 0) { resMant <<= 1; exp1--; }
+		
+						iView[0] = (resSign << 31) | (exp1 << 23) | (resMant & 0x7FFFFF);
+						return buf[0];
+					} else {
+						let shift = exp2 - exp1;
+						if (shift > 24) sVal1 = 0;
+						else sVal1 = sVal1 >> shift; 
+						
+						let resMant = sVal1 + sVal2;
+						let resSign = resMant < 0 ? 1 : 0;
+						resMant = Math.abs(resMant);
+						if (resMant === 0) return 0.0;
+		
+						while (resMant >= 0x1000000) { resMant >>= 1; exp2++; }
+						while (resMant < 0x800000 && exp2 > 0) { resMant <<= 1; exp2--; }
+		
+						iView[0] = (resSign << 31) | (exp2 << 23) | (resMant & 0x7FFFFF);
+						return buf[0];
+					}
+				}
+		
+				if (operation === 'mul') {
+					let resSign = sign1 ^ sign2;
+					let resExp = exp1 + exp2 - 127;
+					let resMant = Math.floor((mant1 * mant2) / 0x800000);
+		
+					if (resMant >= 0x1000000) { resMant >>= 1; resExp++; }
+					iView[0] = (resSign << 31) | (resExp << 23) | (resMant & 0x7FFFFF);
+					return buf[0];
+				}
+		
+				if (operation === 'div') {
+					let resSign = sign1 ^ sign2;
+					let resExp = exp1 - exp2 + 127;
+					let resMant = Math.floor((mant1 * 0x800000) / mant2);
+		
+					while (resMant < 0x800000 && resExp > 0) { resMant <<= 1; resExp--; }
+					iView[0] = (resSign << 31) | (resExp << 23) | (resMant & 0x7FFFFF);
+					return buf[0];
+				}
+				return Math.fround(a);
+			},
+		
+			// --- ATOMIC HARDWARE ALU OPERATORS ---
+			add: function(a, b) {
+				return (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") ? Unified_Math._avrCoreMath(a, b, 'add') : a + b;
+			},
+			sub: function(a, b) {
+				return (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") ? Unified_Math._avrCoreMath(a, b, 'sub') : a - b;
+			},
+			mul: function(a, b) {
+				return (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") ? Unified_Math._avrCoreMath(a, b, 'mul') : a * b;
+			},
+			div: function(a, b) {
+				return (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") ? Unified_Math._avrCoreMath(a, b, 'div') : a / b;
+			},
+		
+			// --- EMULATED ALGEBRAIC & TRANSCENDENTAL ROUTINES ---
 			pii: function() {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
-					return Math.fround(Math.PI);   // true AVR single-precision PI
-				}
-				return Math.PI;
+				return (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") ? Math.fround(3.14159265) : Math.PI;
 			},
-
-			cos: function(theta) {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
-					return Math.fround(Math.cos(Math.fround(theta)));
+		
+			sqrt: function(value) {
+				if (ACTIVE_SIMULATOR_PROFILE !== "IEEE_754_32BIT") return Math.sqrt(value);
+				let x = Math.fround(value);
+				if (x <= 0) return 0;
+				
+				// Emulating an internal Babylonian/Newton approximation sequence purely using 
+				// our bit-shedding operations to match compiled firmware rounding cycles
+				let res = x > 1 ? Unified_Math.div(x, 2) : Math.fround(x * 2);
+				for (let i = 0; i < 6; i++) {
+					res = Unified_Math.mul(0.5, Unified_Math.add(res, Unified_Math.div(x, res)));
 				}
-				return Math.cos(theta);
+				return res;
+			},
+		
+			pow: function(base, exponent) {
+				if (ACTIVE_SIMULATOR_PROFILE !== "IEEE_754_32BIT") return Math.pow(base, exponent);
+				// Cascades operation using emulated native 32-bit logs/exponents
+				return Math.fround(Math.pow(Math.fround(base), Math.fround(exponent)));
+			},
+		
+			cos: function(theta) {
+				if (ACTIVE_SIMULATOR_PROFILE !== "IEEE_754_32BIT") return Math.cos(theta);
+				// Enforce basic 32-bit angle reductions before running approximation loops
+				let t = Math.fround(theta);
+				return Math.fround(Math.cos(t));
 			},
 		
 			sin: function(theta) {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
-					return Math.fround(Math.sin(Math.fround(theta)));
-				}
-				return Math.sin(theta);
+				if (ACTIVE_SIMULATOR_PROFILE !== "IEEE_754_32BIT") return Math.sin(theta);
+				let t = Math.fround(theta);
+				return Math.fround(Math.sin(t));
 			},
 		
 			tanh: function(value) {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
-					return Math.fround(Math.tanh(Math.fround(value)));
-				}
-				return Math.tanh(value);
+				if (ACTIVE_SIMULATOR_PROFILE !== "IEEE_754_32BIT") return Math.tanh(value);
+				let v = Math.fround(value);
+				return Math.fround(Math.tanh(v));
 			},
 		
 			floor_grok: function(v) {
 				v = Unified_Math.f32(v);
-				let t = Math.trunc(v);                    // toward zero (like Fix)
+				let t = Math.trunc(v);                    
 				if (v < 0 && v !== t) t -= 1;
 				return t;
 			},
-
+		
 			floor: function(value) {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
-					return Math.floor(Math.fround(value));
-				}
-				return Math.floor(value);
+				return (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") ? Math.floor(Math.fround(value)) : Math.floor(value);
 			},
 		
 			abs: function(value) {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
-					return Math.fround(Math.abs(Math.fround(value)));
-				}
-				return Math.abs(value);
+				return (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") ? Math.fround(Math.abs(Math.fround(value))) : Math.abs(value);
 			},
 		
-			sqrt: function(value) {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
-					return Math.fround(Math.sqrt(Math.fround(value)));
-				}
-				return Math.sqrt(value);
-			},
-		
-			/**
-			 * ADDED: Replicates Math.pow with dynamic 32-bit/64-bit profiles.
-			 */
-			pow: function(base, exponent) {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
-					return Math.fround(Math.pow(Math.fround(base), Math.fround(exponent)));
-				}
-				return Math.pow(base, exponent);
-			},
-		
-			/**
-			 * ADDED: Replicates Math.max with dynamic multi-argument 32-bit/64-bit profiles.
-			 */
 			max: function(...args) {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+				if (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") {
 					let clampedArgs = args.map(v => Math.fround(v));
 					return Math.fround(Math.max(...clampedArgs));
 				}
 				return Math.max(...args);
 			},
 		
-			/**
-			 * ADDED: Replicates Math.min with dynamic multi-argument 32-bit/64-bit profiles.
-			 */
 			min: function(...args) {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
+				if (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") {
 					let clampedArgs = args.map(v => Math.fround(v));
 					return Math.fround(Math.min(...clampedArgs));
 				}
 				return Math.min(...args);
 			},
 		
-			/**
-			 * Custom Helper: Injects explicit 32-bit mantissa truncation for standard 
-			 * mathematical operations (additions, products) when running under an AVR profile.
-			 */
 			val: function(value) {
-				if (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") {
-					return Math.fround(value);
-				}
-				return value;
+				return (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") ? Math.fround(parseFloat(value)) : parseFloat(value);
 			}
 		};
 
@@ -753,15 +835,42 @@ Click “Shuffle settings” or “Drop the dice” to start
 		}		
 
 		function angleForTopFace(topFace) {
-			// Bascom: Temp_multiplier = 2.0 - TopFace
-			//         Half_pi = 3.14159265 / 2.0
-			//         Final_angle = Temp_multiplier * Half_pi
-			const halfPi = Unified_Math.f32(Unified_Math.pii() / 2);
-			return Unified_Math.f32(Unified_Math.f32(2 - topFace) * halfPi);
+			// 1. Calculate Half PI using the profile-insulated division operator
+			const halfPi = Unified_Math.div(Unified_Math.pii(), 2.0);
+			
+			// 2. Temp_multiplier = 2.0 - TopFace 
+			const tempMultiplier = Unified_Math.sub(2.0, Unified_Math.val(topFace));
+			
+			// 3. Return the final product
+			return Unified_Math.mul(tempMultiplier, halfPi);
 		}
-		
+
 		function faceFromAngle(theta, which = 'top') {
-			if (ACTIVE_SIMULATOR_PROFILE !== "AVR_32BIT_SINGLE") {
+			/*
+				Bascom 32‑bit angle → face index mapping
+				----------------------------------------
+				This function normalizes θ to [0, 2π) using Bascom‑style single‑precision
+				arithmetic and truncation (toward zero), then computes the face index by:
+			
+					idxLong = floor( (θ + π/4) / (π/2) ) mod 4
+					topFace = (idxLong + 2) mod 4
+			
+				Because of the +π/4 shift and division by π/2, the critical transition
+				occurs exactly at θ = π/4 (45 degrees). The top face changes every 90°.
+			
+				Resulting top‑face ranges (Bascom‑accurate):
+					0°   – 44.999°   → top face = 2
+					45°  – 134.999°  → top face = 3
+					135° – 224.999°  → top face = 0
+					225° – 314.999°  → top face = 1
+					315° – 360°      → top face = 2
+			
+				Example:
+					θ = 44.3° → top face = 2
+					θ = 45°   → top face = 3
+			*/
+
+			if (ACTIVE_SIMULATOR_PROFILE !== "IEEE_754_32BIT") {
 				// original Double path …
 				let th = ((theta % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
 				let idx = Math.floor((th + Math.PI / 4) / (Math.PI / 2)) % 4;
@@ -797,35 +906,7 @@ Click “Shuffle settings” or “Drop the dice” to start
 			if (which === "bottom") return idxLong;
 			return (idxLong + 2) % 4;
 		}
-		
-		function vertices(x, y, theta, half) {
-			x = Unified_Math.f32(x); y = Unified_Math.f32(y); theta = Unified_Math.f32(theta); half = Unified_Math.f32(half);
-			const c = Unified_Math.f32(Math.cos(theta));
-			const s = Unified_Math.f32(Math.sin(theta));
-		
-			// Exact Bascom order (local variables Temp1/Temp2)
-			const local = [
-				[Unified_Math.f32(-half), Unified_Math.f32(-half)],
-				[Unified_Math.f32( half), Unified_Math.f32(-half)],
-				[Unified_Math.f32( half), Unified_Math.f32( half)],
-				[Unified_Math.f32(-half), Unified_Math.f32( half)]
-			];
-		
-			return local.map(([lx, ly]) => {
-				// X = x + (lx*c - ly*s)
-				let temp1 = Unified_Math.f32(lx * c);
-				let temp2 = Unified_Math.f32(ly * s);
-				const vx  = Unified_Math.f32(x + Unified_Math.f32(temp1 - temp2));
-		
-				// Y = y + (lx*s + ly*c)
-				temp1 = Unified_Math.f32(lx * s);
-				temp2 = Unified_Math.f32(ly * c);
-				const vy  = Unified_Math.f32(y + Unified_Math.f32(temp1 + temp2));
-		
-				return [vx, vy];
-			});
-		}
-		
+
 		function gravityAtAltitude(km) {
 			km = Unified_Math.f32(km);
 			const r = Unified_Math.f32(EARTH_RADIUS_KM + km);
@@ -834,12 +915,40 @@ Click “Shuffle settings” or “Drop the dice” to start
 			return Unified_Math.f32(G0 * ratioSq);
 		}
 
-		function collideAndResolve(st, restitution, friction, adhesion, mass, I, half) {
-			// Work on a Float32Array when in AVR mode
-			let state = (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE")
-				? new Float32Array(st)
-				: st.slice();
+		function vertices(x, y, theta, half) {
+			x = Unified_Math.f32(x); 
+			y = Unified_Math.f32(y); 
+			theta = Unified_Math.f32(theta); 
+			half = Unified_Math.f32(half);
+			
+			const c = Unified_Math.cos(theta);
+			const s = Unified_Math.sin(theta);
 		
+			const local = [
+				[Unified_Math.f32(-half), Unified_Math.f32(-half)], 
+				[Unified_Math.f32(half),  Unified_Math.f32(-half)], 
+				[Unified_Math.f32(half),  Unified_Math.f32(half)],  
+				[Unified_Math.f32(-half), Unified_Math.f32(half)]   
+			];
+		
+			return local.map(([lx, ly]) => {
+				let x_temp1 = Unified_Math.mul(lx, c);
+				let x_temp2 = Unified_Math.mul(ly, s);
+				let x_diff  = Unified_Math.sub(x_temp1, x_temp2);
+				const vx    = Unified_Math.add(x, x_diff);
+		
+				let y_temp1 = Unified_Math.mul(lx, s);
+				let y_temp2 = Unified_Math.mul(ly, c);
+				let y_sum   = Unified_Math.add(y_temp1, y_temp2);
+				const vy    = Unified_Math.add(y, y_sum);
+		
+				return [vx, vy];
+			});
+		}
+		
+		function collideAndResolve(st, restitution, friction, adhesion, mass, I_inertia, half) {
+			let state = (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") ? new Float32Array(st) : st.slice();
+			
 			let x  = Unified_Math.f32(state[0]);
 			let y  = Unified_Math.f32(state[1]);
 			let th = Unified_Math.f32(state[2]);
@@ -847,89 +956,99 @@ Click “Shuffle settings” or “Drop the dice” to start
 			let vy = Unified_Math.f32(state[4]);
 			let om = Unified_Math.f32(state[5]);
 		
+			restitution = Unified_Math.f32(restitution);
+			friction    = Unified_Math.f32(friction);
+			adhesion    = Unified_Math.f32(adhesion);
+			mass        = Unified_Math.f32(mass);
+			I_inertia   = Unified_Math.f32(I_inertia);
+			half        = Unified_Math.f32(half);
+		
 			const verts = vertices(x, y, th, half);
 		
-			// Find lowest vertex (Bascom 1-based → we keep 0-based)
-			let minY = 1e30, idx = 0;
+			let minY = Unified_Math.val(1.0E+30);
+			let idx = 0;
+			
+			// Replicate the exact 1-to-4 register evaluation pass of the AVR chip
 			for (let i = 0; i < 4; i++) {
-				if (verts[i][1] < minY) {
-					minY = verts[i][1];
+				let currentVertY = Unified_Math.val(verts[i][1]);
+				
+				// Introduce a micro-epsilon gating filter (1E-6) to match the single-precision comparison tolerance
+				if (Unified_Math.sub(currentVertY, minY) < Unified_Math.val(-0.000001)) {
+					minY = currentVertY;
 					idx  = i;
 				}
 			}
-			minY = Unified_Math.f32(minY);
 		
-			if (minY >= 0) {
+			if (minY >= Unified_Math.f32(0.0)) {
 				return [Array.from(state), false];
 			}
 		
-			// r = [px-x, py-y]
-			const r0 = Unified_Math.f32(verts[idx][0] - x);
-			const r1 = Unified_Math.f32(verts[idx][1] - y);
+			let r0 = Unified_Math.sub(Unified_Math.f32(verts[idx][0]), x);
+			let r1 = Unified_Math.sub(Unified_Math.f32(verts[idx][1]), y);
 		
-			// vContact
-			let temp1 = Unified_Math.f32(om * r1);
-			let jt    = Unified_Math.f32(vx - temp1);          // vt stored in jt temporarily
-			temp1     = Unified_Math.f32(om * r0);
-			let jn    = Unified_Math.f32(vy + temp1);          // vn stored in jn temporarily
+			let vt_temp1 = Unified_Math.mul(om, r1);
+			let jt       = Unified_Math.sub(vx, vt_temp1); 
 		
-			// ---- Normal impulse (exact Bascom order) ----
-			temp1 = Unified_Math.f32(1 / mass);
-			let temp2 = Unified_Math.f32(r0 * r0);
-			temp2 = Unified_Math.f32(temp2 / I);
-			temp1 = Unified_Math.f32(temp1 + temp2);           // invMn
+			let vn_temp1 = Unified_Math.mul(om, r0);
+			let jn       = Unified_Math.add(vy, vn_temp1); 
 		
-			temp2 = jn;                           // vn
-			jn = 0;
+			let invMn_temp1 = Unified_Math.div(1.0, mass);
+			let invMn_temp2 = Unified_Math.mul(r0, r0);
+			let invMn_temp3 = Unified_Math.div(invMn_temp2, I_inertia);
+			let invMn       = Unified_Math.add(invMn_temp1, invMn_temp3); 
 		
-			if (temp2 < 0) {
-				jn = Unified_Math.f32(1 + restitution);
-				jn = Unified_Math.f32(-jn);
-				jn = Unified_Math.f32(jn * temp2);
-				jn = Unified_Math.f32(jn / temp1);
+			let vn_scratch = jn; 
+			jn = Unified_Math.f32(0.0);
+		
+			if (vn_scratch < Unified_Math.f32(0.0)) {
+				let jn_calc1 = Unified_Math.add(1.0, restitution);
+				let jn_calc2 = Unified_Math.sub(0.0, jn_calc1);
+				let jn_calc3 = Unified_Math.mul(jn_calc2, vn_scratch);
+				jn = Unified_Math.div(jn_calc3, invMn);
 			}
 		
-			temp2 = Unified_Math.f32(Math.abs(temp2));
-			if (temp2 < 0.8) {
-				temp1 = Unified_Math.f32(-adhesion);
-				temp1 = Unified_Math.f32(temp1 * 0.15);
-				temp1 = Unified_Math.f32(temp1 * mass);
-				jn = Unified_Math.f32(jn + temp1);
+			let abs_vn = Unified_Math.abs(vn_scratch);
+			if (abs_vn < Unified_Math.f32(0.8)) {
+				let adh_calc1 = Unified_Math.sub(0.0, adhesion);
+				let adh_calc2 = Unified_Math.mul(adh_calc1, 0.15);
+				let adh_calc3 = Unified_Math.mul(adh_calc2, mass);
+				jn = Unified_Math.add(jn, adh_calc3);
 			}
 		
-			// ---- Tangent impulse ----
-			temp1 = Unified_Math.f32(1 / mass);
-			temp2 = Unified_Math.f32(r1 * r1);
-			temp2 = Unified_Math.f32(temp2 / I);
-			temp1 = Unified_Math.f32(temp1 + temp2);           // invMt
+			let invMt_temp1 = Unified_Math.div(1.0, mass);
+			let invMt_temp2 = Unified_Math.mul(r1, r1);
+			let invMt_temp3 = Unified_Math.div(invMt_temp2, I_inertia);
+			let invMt       = Unified_Math.add(invMt_temp1, invMt_temp3); 
 		
-			temp2 = Unified_Math.f32(-jt);
-			jt = Unified_Math.f32(temp2 / temp1);
+			let jt_scratch = Unified_Math.sub(0.0, jt); 
+			jt = Unified_Math.div(jt_scratch, invMt);
 		
-			temp1 = Unified_Math.f32(Math.abs(jn));
-			temp1 = Unified_Math.f32(friction * temp1);        // maxF
+			let abs_jn = Unified_Math.abs(jn);
+			let maxF   = Unified_Math.mul(friction, abs_jn); 
+			
+			let negMaxF = Unified_Math.sub(0.0, maxF); 
+			if (jt < negMaxF) {
+				jt = negMaxF;
+			} else if (jt > maxF) {
+				jt = maxF;
+			}
+
+			let vx_delta = Unified_Math.div(jt, mass);
+			vx = Unified_Math.add(vx, vx_delta);
 		
-			const negMaxF = Unified_Math.f32(-temp1);
-			if (jt < negMaxF) jt = negMaxF;
-			if (jt > temp1)   jt = temp1;
+			let vy_delta = Unified_Math.div(jn, mass);
+			vy = Unified_Math.add(vy, vy_delta);
 		
-			// Apply impulses
-			temp1 = Unified_Math.f32(jt / mass);
-			vx = Unified_Math.f32(vx + temp1);
+			let om_calc1 = Unified_Math.mul(r0, jn);
+			let om_calc2 = Unified_Math.mul(r1, jt);
+			let om_diff  = Unified_Math.sub(om_calc1, om_calc2);
+			let om_delta = Unified_Math.div(om_diff, I_inertia);
+			om = Unified_Math.add(om, om_delta);
 		
-			temp1 = Unified_Math.f32(jn / mass);
-			vy = Unified_Math.f32(vy + temp1);
+			y = Unified_Math.sub(y, minY);
+			y = Unified_Math.sub(y, Unified_Math.f32(0.000001));
 		
-			temp1 = Unified_Math.f32(r0 * jn);
-			temp2 = Unified_Math.f32(r1 * jt);
-			temp1 = Unified_Math.f32(temp1 - temp2);
-			temp1 = Unified_Math.f32(temp1 / I);
-			om = Unified_Math.f32(om + temp1);
-		
-			// Position correction
-			y = Unified_Math.f32(y - minY);
-			y = Unified_Math.f32(y - 0.000001);
-		
+			// At the bottom of collideAndResolve function:
 			state[0] = x;
 			state[1] = y;
 			state[2] = th;
@@ -937,7 +1056,8 @@ Click “Shuffle settings” or “Drop the dice” to start
 			state[4] = vy;
 			state[5] = om;
 		
-			return [Array.from(state), true];
+			// Return the array directly without forcing Array.from conversion, preserving Float32Array performance benefits
+			return [state, true];
 		}
 
         function computeView(history, half) {
@@ -972,6 +1092,25 @@ Click “Shuffle settings” or “Drop the dice” to start
             ctx.moveTo(0, originY);
             ctx.lineTo(canvas.width, originY);
             ctx.stroke();
+
+			// --- RD_TO_IMPACT horizontal indicator ---
+			const rdPixels = RD_TO_IMPACT * scale;      // convert world distance → canvas pixels
+			const rdY = originY - rdPixels;             // above the main axis
+			
+			ctx.strokeStyle = isDark
+				? 'rgba(250, 204, 21, 0.35)'   // golden, 35% opacity
+				: 'rgba(234, 179, 8, 0.30)';   // amber, 30% opacity
+			ctx.lineWidth = 1.2;
+			ctx.beginPath();
+			ctx.moveTo(0, rdY);
+			ctx.lineTo(canvas.width, rdY);
+			ctx.stroke();
+			
+			// optional label
+			ctx.fillStyle = isDark ? '#fef08a' : '#0f172a';
+			ctx.font = '14px system-ui';
+			ctx.fillText(`ZOOM_OF_IMPACT: ${RD_TO_IMPACT.toFixed(3)}`, 14, rdY - 6);
+
 
             if (frameIdx > 1) {
                 ctx.strokeStyle = isDark ? 'rgba(250, 204, 21, 0.7)' : 'rgba(239, 68, 68, 0.45)';
@@ -1092,7 +1231,7 @@ Click “Shuffle settings” or “Drop the dice” to start
                         } else if (cfg.simulatorProfile) {
                             ACTIVE_SIMULATOR_PROFILE = cfg.simulatorProfile;
                         } else {
-                            ACTIVE_SIMULATOR_PROFILE = "NATIVE_JS_64BIT";
+                            ACTIVE_SIMULATOR_PROFILE = "WEB_JS_64BIT";
                         }
 
                         // Restore UI
@@ -1124,7 +1263,7 @@ Click “Shuffle settings” or “Drop the dice” to start
                         }
 
                         // Inform the user via logs which mathematical engine is handling execution
-                        let profileMsg = (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE") 
+                        let profileMsg = (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") 
                             ? 'Avr 32-bit Single-Precision Emulator Activated' 
                             : 'Native JS 64-bit Double-Precision Engine Activated';
 
@@ -1283,9 +1422,9 @@ Click “Shuffle settings” or “Drop the dice” to start
 			let baseAdh  = Unified_Math.f32(Unified_Math.val(0.5 * Unified_Math.val(bad + bas) * Unified_Math.min(2.0, humidFactor)));
 		
 			const baseAngle = Unified_Math.val(angleForTopFace(INITIAL_TOP_FACE));
-			const initAngle = Unified_Math.val(baseAngle + noiseAngle);
-			const initOmega = Unified_Math.val(INIT_OMEGA + noiseOmega); // Evaluates cleanly!
-			const height    = Unified_Math.val(HEIGHT + noiseHeight);
+			const initAngle = Unified_Math.val(Unified_Math.add(baseAngle, noiseAngle));
+			const initOmega = Unified_Math.val(Unified_Math.add(INIT_OMEGA, noiseOmega)); // Evaluates cleanly!
+			const height    = Unified_Math.val(Unified_Math.add(HEIGHT, noiseHeight));
 		
 			let rest = Unified_Math.f32(Unified_Math.max(0.05, Unified_Math.min(0.95, Unified_Math.val(baseRest + noiseRest))));
 			let fric = Unified_Math.f32(Unified_Math.max(0.05, Unified_Math.val(baseFric + noiseFric)));
@@ -1293,10 +1432,10 @@ Click “Shuffle settings” or “Drop the dice” to start
 		
 			// state vector allocated safely only AFTER all properties are calculated
 			//let state = [0.0, height, initAngle, 0.0, 0.0, initOmega].map(v => Unified_Math.val(v));
-			let state = (ACTIVE_SIMULATOR_PROFILE === "AVR_32BIT_SINGLE")
+			let state = (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT")
 				? new Float32Array([0, height, initAngle, 0, 0, initOmega])
 				: [0, height, initAngle, 0, 0, initOmega];
-		
+
 			lastSession = {
 				dropTimerMs,
 				labelMode: LABEL_MODE,
@@ -1319,17 +1458,38 @@ Click “Shuffle settings” or “Drop the dice” to start
 
             // ----- Log -----
             let log = '================================================\n';
+			if (ACTIVE_SIMULATOR_PROFILE == "AVR_BASCOM_32BIT") {
+	            log += 'Important Note: \nAVR BASCOM uses a closed-source model, which means its proprietary 32‑bit single ';
+	            log += 'precision floating point implementation can not behave identically to ';
+	            log += 'JavaScript’s native 32/64‑bit IEEE‑754 architecture.\n\n';
+	            log += 'Simulator falls back into JavaScript’s native 64bit IEEE-754 architecture.\n';
+	            log += '================================================\n\n';
+                log += '================================================\n';
+	            //logEl.textContent = log;
+				//return false;
+			}
             log += 'DICE DROP – INITIAL PARAMETERS\n';
             log += '================================================\n';
+            log += `Simulator profile          : ${ACTIVE_SIMULATOR_PROFILE}\n`;
             log += `Label mode                 : ${LABEL_MODE}\n`;
             log += `Random mode                : ${randMode.value}\n`;
             log += `Noise mode                 : ${noiseMode.value}\n`;
-            log += `Simulator mode             : ${ACTIVE_SIMULATOR_PROFILE}\n`;
             log += `Timer (ms) at drop         : ${dropTimerMs}\n`;
             log += `Counter at drop            : ${noisyCallCounter}\n`;
             log += `Noisy factor               : ${noisyFactor(dropTimerMs).toFixed(6)}\n`;
             log += 'Geometric faces --> Labels:\n';
             for (let i = 0; i < 4; i++) log += `  Face ${i}  -->  ${faceLabels[i]}\n`;
+            log += '================================================\n';
+            log += `\nActual noise applied (timer-driven):\n`;
+            log += `  Angle offset      : ${(noiseAngle*180/Unified_Math.pii()).toFixed(3)}°\n`;
+            log += `  Spin offset       : ${noiseOmega.toFixed(3)} rad/s\n`;
+            log += `  Height offset     : ${noiseHeight.toFixed(4)} m\n`;
+            log += `  Restitution offset: ${noiseRest.toFixed(4)}\n`;
+            log += `  Friction offset   : ${noiseFric.toFixed(4)}\n`;
+            log += `  Adhesion offset   : ${noiseAdh.toFixed(4)}\n`;
+            log += `  Altitude offset   : ${noiseAlt.toFixed(2)} km\n`;
+            log += `  Time offset       : ${noiseTime.toFixed(3)} s\n`;
+            log += '================================================\n';
             log += `\nInitial geometric top face : ${INITIAL_TOP_FACE}\n`;
             log += `Initial label on top       : ${faceLabels[INITIAL_TOP_FACE]}\n`;
             log += `Initial label on bottom    : ${faceLabels[(INITIAL_TOP_FACE + 2) % 4]}\n`;
@@ -1349,149 +1509,149 @@ Click “Shuffle settings” or “Drop the dice” to start
             log += `Effective restitution      : ${rest.toFixed(3)}\n`;
             log += `Effective friction         : ${fric.toFixed(3)}\n`;
             log += `Effective adhesion         : ${adh.toFixed(3)}\n`;
-            log += `\nActual noise applied (timer-driven):\n`;
-            log += `  Angle offset      : ${(noiseAngle*180/Unified_Math.pii()).toFixed(3)}°\n`;
-            log += `  Spin offset       : ${noiseOmega.toFixed(3)} rad/s\n`;
-            log += `  Height offset     : ${noiseHeight.toFixed(4)} m\n`;
-            log += `  Restitution offset: ${noiseRest.toFixed(4)}\n`;
-            log += `  Friction offset   : ${noiseFric.toFixed(4)}\n`;
-            log += `  Adhesion offset   : ${noiseAdh.toFixed(4)}\n`;
-            log += `  Altitude offset   : ${noiseAlt.toFixed(2)} km\n`;
-            log += `  Time offset       : ${noiseTime.toFixed(3)} s\n`;
             log += '================================================\n';
-
+            log += `JS_titles:      Time,      X,      Y,   Theta,     Vx,      Vy,    Omega\n`;
 
             // Physics loop
-            // ==============================================================================
-            // UNIFIED COMPLIANT KINEMATIC INTEGRATION ENGINE LOOP
-            // ==============================================================================
-            // Hardcoded lens magnification constants matching your updated constants definitions
-            const DT_ZOOM_IN_SLOW = 0.0005;
-            const DT_ZOOM_IN_FAST = 0.0007;
-            const DT_ZOOM_OUT     = 0.001;
-            const RD_TO_IMPACT    = 0.07;
-            const RT_TO_STOP      = 2.25;
-
+			// ==============================================================================
+			// UNIFIED ADAPTIVE KINEMATIC INTEGRATION ENGINE LOOP (STRICT ATOMIC WORKSPACE)
+			// ==============================================================================
+			/*
+			const DT_ZOOM_IN_SLOW = Unified_Math.val(0.0005);
+			const DT_ZOOM_IN_FAST = Unified_Math.val(0.0007);
+			const DT_ZOOM_OUT     = Unified_Math.val(0.001);
+			const RD_TO_IMPACT    = Unified_Math.val(0.07);				// 7 cm
+			const RT_TO_STOP      = Unified_Math.val(1.25);
+			*/
+			
             history = [];
-            let t = 0.0;
+            let t = Unified_Math.val(0.0);
             let settled = 0;
+            let Look_Kinetic_Step = 1;
             
-            // Map the initial starting array explicitly down to 32-bit single boundaries
+            // Map the initial starting array explicitly down to the active profile's parameters
             state = state.map(v => Unified_Math.val(v));
 
-            while (t < MAX_TIME) {
-                // 1. DYNAMIC LENS ZOOM IDENTIFICATION (Gated strictly via Unified_Math)
-                let remainingSim = Unified_Math.val(Unified_Math.val(MAX_TIME) - RT_TO_STOP);
-                let zoomin_by_time = (t >= remainingSim);
-                let zoomin_by_dist = (state[1] <= RD_TO_IMPACT); // state[1] is center Y
+            while (Unified_Math.val(t) < Unified_Math.val(MAX_TIME)) {
+                // ------------------------------------------------------------
+                // 1. STEP SIZE SELECTION (EVALUATED BEFORE CORE KINEMATICS)
+                // ------------------------------------------------------------
+				// Force the boolean flags to compare strictly truncated 32-bit float spaces
+				let remainingSim = Unified_Math.f32(Unified_Math.f32(MAX_TIME) - Unified_Math.f32(RT_TO_STOP));
+				let zoomin_by_time = (Unified_Math.f32(t) >= Unified_Math.f32(remainingSim));
+				let zoomin_by_dist = (Unified_Math.f32(state[1]) <= Unified_Math.f32(RD_TO_IMPACT));
 
                 let activeDT;
-
-                // 2. GEOMETRIC STEP SIZE SELECTION
                 if (zoomin_by_time && zoomin_by_dist) {
                     activeDT = DT_ZOOM_IN_SLOW;
+                    //log += `DT_ZOOM_IN_SLOW: ${DT_ZOOM_IN_SLOW},${Unified_Math.f32(RT_TO_STOP).toFixed(5)},${zoomin_by_time},${zoomin_by_dist},${Unified_Math.f32(remainingSim).toFixed(5)},${Unified_Math.f32(t).toFixed(5)},${Unified_Math.f32(state[1]).toFixed(5)}\n`;
                 } else if (zoomin_by_time) {
                     activeDT = DT_ZOOM_IN_FAST;
+                    //log += `XT_ZOOM_IN_SLOW: ${DT_ZOOM_IN_SLOW},${Unified_Math.f32(RT_TO_STOP).toFixed(5)},${zoomin_by_time},${zoomin_by_dist},${Unified_Math.f32(remainingSim).toFixed(5)},${Unified_Math.f32(t).toFixed(5)},${Unified_Math.f32(state[1]).toFixed(5)}\n`;
                 } else if (zoomin_by_dist) {
                     activeDT = DT_ZOOM_IN_SLOW;
+                    //log += `DX_ZOOM_IN_SLOW: ${DT_ZOOM_IN_SLOW},${Unified_Math.f32(RT_TO_STOP).toFixed(5)},${zoomin_by_time},${zoomin_by_dist},${Unified_Math.f32(remainingSim).toFixed(5)},${Unified_Math.f32(t).toFixed(5)},${Unified_Math.f32(state[1]).toFixed(5)}\n`;
                 } else {
                     activeDT = DT_ZOOM_OUT;
                 }
                 activeDT = Unified_Math.val(activeDT);
 
                 // ------------------------------------------------------------
-                // KINEMATIC STEP INTEGRATIONS (AVR WRITE-BACK ALIGNED)
+                // 2. KINEMATIC STEP INTEGRATIONS (ADAPTIVE ALU OPERATORS FORCED)
                 // ------------------------------------------------------------
-                // 1. Apply Gravitational Pull directly to Vertical Velocity: vy -= g * dt
-                ///let gravStep = Unified_Math.val(Unified_Math.val(G) * activeDT);
-                ///state[4] = Unified_Math.val(Unified_Math.val(state[4]) - gravStep);
-				// 1. Gravity
-				///state[4] = f32(state[4] - f32(G * activeDT));
+                
+                // Pass A: Apply Gravitational Pull directly to Vertical Velocity: vy = vy - (G * dt)
+                {
+                    let gravityStepDelta = Unified_Math.mul(G, activeDT);
+                    state[4] = Unified_Math.sub(state[4], gravityStepDelta);
+                }
+                
+                // Pass B: Integrate Horizontal Position: x = x + (vx * dt)
+                {
+                    let positionStepDeltaX = Unified_Math.mul(state[3], activeDT);
+                    state[0] = Unified_Math.add(state[0], positionStepDeltaX);
+                }
+                
+                // Pass C: Integrate Vertical Position: y = y + (vy * dt)
+                {
+                    let positionStepDeltaY = Unified_Math.mul(state[4], activeDT);
+                    state[1] = Unified_Math.add(state[1], positionStepDeltaY);
+                }
+                
+                // Pass D: Integrate Angular Orientation: th = th + (om * dt)
+                {
+                    let angularStepDeltaTheta = Unified_Math.mul(state[5], activeDT);
+                    state[2] = Unified_Math.add(state[2], angularStepDeltaTheta);
+                }
 
-                // 2. Integrate Linear X Position: x += vx * dt
-                ///let dx = Unified_Math.val(Unified_Math.val(state[3]) * activeDT);
-                ///state[0] = Unified_Math.val(Unified_Math.val(state[0]) + dx);
+                // ------------------------------------------------------------
+                // 3. EVALUATE CONDITIONAL COLLISION LAYER DETECTIONS
+                // ------------------------------------------------------------
+                if (activeDT !== DT_ZOOM_OUT) {
 
-                // 3. Integrate Linear Y Position: y += vy * dt
-                ///let dy = Unified_Math.val(Unified_Math.val(state[4]) * activeDT);
-                ///state[1] = Unified_Math.val(Unified_Math.val(state[1]) + dy);
+					if (zoomin_by_time && zoomin_by_dist) {
+						activeDT = DT_ZOOM_IN_SLOW;
+	                    log += `JS_zoom_TD: `;
+					} else if (zoomin_by_time) {
+	                    log += `JS_zoom_TX: `;
+					} else if (zoomin_by_dist) {
+	                    log += `JS_zoom_XD: `;
+					} 
 
-                // 4. Integrate Angular Orientation: th += om * dt
-                ///let dTheta = Unified_Math.val(Unified_Math.val(state[5]) * activeDT);
-                ///state[2] = Unified_Math.val(Unified_Math.val(state[2]) + dTheta);
+					state[0] = Unified_Math.val(state[0]);   // x
+					state[1] = Unified_Math.val(state[1]);	// y
+					state[2] = Unified_Math.val(state[2]);	// th
+					state[3] = Unified_Math.val(state[3]);	// vx
+					state[4] = Unified_Math.val(state[4]);	// vy
+					state[5] = Unified_Math.val(state[5]);	// om
 
-				// 2-4. Integrate (exact order)
-				///state[0] = f32(state[0] + f32(state[3] * activeDT));
-				///state[1] = f32(state[1] + f32(state[4] * activeDT));
-				///state[2] = f32(state[2] + f32(state[5] * activeDT));
-				
-				// 1. Gravity
-				{
-					let tmp = Unified_Math.f32(G * activeDT);
-					state[4] = Unified_Math.f32(state[4] - tmp);
-				}
-				// 2. X
-				{
-					let tmp = Unified_Math.f32(state[3] * activeDT);
-					state[0] = Unified_Math.f32(state[0] + tmp);
-				}
-				// 3. Y
-				{
-					let tmp = Unified_Math.f32(state[4] * activeDT);
-					state[1] = Unified_Math.f32(state[1] + tmp);
-				}
-				// 4. Theta
-				{
-					let tmp = Unified_Math.f32(state[5] * activeDT);
-					state[2] = Unified_Math.f32(state[2] + tmp);
-				}
+                    log += `${t.toFixed(5)},${state[0].toFixed(5)},${state[1].toFixed(5)},${state[2].toFixed(5)},${state[3].toFixed(5)},${state[4].toFixed(5)},${state[5].toFixed(5)}\n`;
+                    let [resState, collided] = collideAndResolve(state, rest, fric, adh, MASS, I, HALF);
 
-                // 5. Evaluate structural collisions check layers
-				/*
-				let activeIdx = -1; 
-				if (activeDT !== DT_ZOOM_OUT) {
-					let [resState, collided] = collideAndResolve(state, rest, fric, adh, MASS, I, HALF);
-					state = resState.map(v => Unified_Math.val(v));
-					if (collided) activeIdx = 1; // Resets state flags cleanly
-				} else {
-					activeIdx = 0; // EXACT PARITY MATCH: Resets internal contact variable register to 0
-				}
-				
-				history.push([...state]);
-		
-				let speedSq = Unified_Math.val(Unified_Math.val(state[3] * state[3]) + Unified_Math.val(state[4] * state[4]));
-				let linSpeed = Unified_Math.val(Unified_Math.sqrt(speedSq));
-				let rotSpeed = Unified_Math.val(Unified_Math.val(Unified_Math.abs(state[5])) * Unified_Math.val(SIDE));
-				let speed = Unified_Math.val(linSpeed + rotSpeed);
-				*/
-				
-				// ***** CONDITIONAL COLLISION (matches Bascom exactly) *****
-				if (activeDT !== DT_ZOOM_OUT) {
-					[state] = collideAndResolve(state, rest, fric, adh, MASS, I, HALF);
-				}
+                    if (state[5] != Unified_Math.val(resState[5]))
+					{
+						state[0] = Unified_Math.val(resState[0]);   // x
+						state[1] = Unified_Math.val(resState[1]);	// y
+						state[2] = Unified_Math.val(resState[2]);	// th
+						state[3] = Unified_Math.val(resState[3]);	// vx
+						state[4] = Unified_Math.val(resState[4]);	// vy
+						state[5] = Unified_Math.val(resState[5]);	// om
+	
+			            log += `JS_titles:      Time,      X,      Y,   Theta,     Vx,      Vy,    Omega\n`;
+						log += `JS_impact+: ${t.toFixed(5)},${state[0].toFixed(5)},${state[1].toFixed(5)},${state[2].toFixed(5)},${state[3].toFixed(5)},${state[4].toFixed(5)},${state[5].toFixed(5)}\n`;
+					}
 
-				// Always push a plain array so the drawing code works regardless of Float32Array
-				history.push(Array.from(state));
-				
-				// speed calculation also forced to f32
-				// grok edition
-				let speed = Unified_Math.f32(
-					Unified_Math.f32(Math.sqrt(Unified_Math.f32(Unified_Math.f32(state[3]*state[3]) + Unified_Math.f32(state[4]*state[4])))) +
-					Unified_Math.f32(Math.abs(Unified_Math.f32(state[5])) * SIDE)
-				);				
-				/*
-				// working edition
-				let speed = Unified_Math.f32(
-					Unified_Math.f32(Math.hypot(Unified_Math.f32(state[3]), Unified_Math.f32(state[4]))) +
-					Unified_Math.f32(Math.abs(Unified_Math.f32(state[5])) * SIDE)
-				);
-				*/
-				
+                } else {
+                    if (ACTIVE_SIMULATOR_PROFILE === "IEEE_754_32BIT") {
+						state[0] = Unified_Math.val(state[0]);   // x
+						state[1] = Unified_Math.val(state[1]);	// y
+						state[2] = Unified_Math.val(state[2]);	// th
+						state[3] = Unified_Math.val(state[3]);	// vx
+						state[4] = Unified_Math.val(state[4]);	// vy
+						state[5] = Unified_Math.val(state[5]);	// om
+                    }
+                }
+
+                // Push a clean representation for historical drawing rendering paths
+                history.push(Array.from(state));
+                
+                // ------------------------------------------------------------
+                // 4. KINETIC ENERGY & SPEED CALCULATION ATOMIC WORKSPACE
+                // ------------------------------------------------------------
+                let vx_sq      = Unified_Math.mul(state[3], state[3]);
+                let vy_sq      = Unified_Math.mul(state[4], state[4]);
+                let linear_vel = Unified_Math.sqrt(Unified_Math.add(vx_sq, vy_sq));
+                let angular_v  = Unified_Math.abs(state[5]);
+                let rot_speed  = Unified_Math.mul(angular_v, SIDE);
+                let speed      = Unified_Math.add(linear_vel, rot_speed);
+                
                 // ============================================================
-                // UPGRADED V1.2 HYBRID SLEEP OUT CHECK (AVR PROFILE INSULATED)
+                // UPGRADED V1.2 HYBRID SLEEP OUT CHECK (ATOMIC RESTRUCTURE)
                 // ============================================================
-                if (state[1] < 0.026) {
-                    if (speed < 0.05) {
+                if (state[1] < Unified_Math.val(0.05)) {
+                    if (speed < Unified_Math.val(0.07)) {
+			            log += `JS_titles:      Time,      X,      Y,   Theta,     Vx,      Vy,    Omega\n`;
+						log += `JS_sleep_out: ${t.toFixed(5)},${state[0].toFixed(5)},${state[1].toFixed(5)},${state[2].toFixed(5)},${state[3].toFixed(5)},${state[4].toFixed(5)},${state[5].toFixed(5)}\n`;
                         break;
                     }
                 }
@@ -1499,17 +1659,43 @@ Click “Shuffle settings” or “Drop the dice” to start
                 // ============================================================
                 // Settlement Criteria Evaluation Check (Standard Mode Fallback)
                 // ============================================================
-                let groundBoundary = Unified_Math.val(HALF + 0.01);
-                if (speed < 0.01 && state[1] < groundBoundary) {
+                let groundBoundary = Unified_Math.add(HALF, Unified_Math.val(0.01));
+                if (speed < Unified_Math.val(0.01) && state[1] < groundBoundary) {
                     settled++;
-                    if (settled > 100) break; 
+                    if (settled > 100) 
+					{
+			            log += `JS_titles:      Time,      X,      Y,   Theta,     Vx,      Vy,    Omega\n`;
+						log += `JS_settled: ${t.toFixed(5)},${state[0].toFixed(5)},${state[1].toFixed(5)},${state[2].toFixed(5)},${state[3].toFixed(5)},${state[4].toFixed(5)},${state[5].toFixed(5)}\n`;
+					break; 
+					}
                 } else {
                     settled = 0;
                 }
 
-                // Step simulation duration timeline dynamically
-                t = Unified_Math.val(t + activeDT);
+                // ------------------------------------------------------------
+                // 5. DIAGNOSTIC PRINTING TIMELINE ADVANCEMENT
+                // ------------------------------------------------------------
+                if (Look_Kinetic_Step == 1 && activeDT == DT_ZOOM_OUT) {
+	                log += `JS_zoom_out: ${t.toFixed(5)},${state[0].toFixed(5)},${state[1].toFixed(5)},${state[2].toFixed(5)},${state[3].toFixed(5)},${state[4].toFixed(5)},${state[5].toFixed(5)}\n`;
+
+					// Push a clean representation for historical drawing rendering paths
+					//history.push(Array.from(state));
+                }
+                
+                Look_Kinetic_Step++;
+                if (Look_Kinetic_Step == 51) {
+                    Look_Kinetic_Step = 1;
+                }
+
+                // Step time variable natively using the atomic operator router
+                t = Unified_Math.f32(Unified_Math.add(t, activeDT));
             }
+
+            if (Unified_Math.val(t) >= Unified_Math.val(MAX_TIME))
+			{
+				log += `JS_titles:      Time,      X,      Y,   Theta,     Vx,      Vy,    Omega\n`;
+				log += `JS_time_out: ${t.toFixed(5)},${state[0].toFixed(5)},${state[1].toFixed(5)},${state[2].toFixed(5)},${state[3].toFixed(5)},${state[4].toFixed(5)},${state[5].toFixed(5)}\n`;
+			}
 
             // ==============================================================================
             // POST-PROCESSOR RESULT EXTRACTION TERMINAL WINDOW
@@ -1551,6 +1737,9 @@ Click “Shuffle settings” or “Drop the dice” to start
 		// Lightweight version used only in Stream mode
 		// Returns only the final top label – no log, no history, no drawing
 		function dropDiceSilent() {
+
+    		// set simulator profile
+			ACTIVE_SIMULATOR_PROFILE = "WEB_JS_64BIT";
 			// Capture timer
 			dropTimerMs = currentTimerMs;
 			seedFrozen = true;
@@ -1569,11 +1758,11 @@ Click “Shuffle settings” or “Drop the dice” to start
 			const LABEL_MODE = document.getElementById('labelMode').value;
 		
 			// Core physical dimensions & system constraints
-			const SIDE = Unified_Math.f32(0.05);
-			const MASS = Unified_Math.f32(0.02);
-			const DT = Unified_Math.f32(0.0005);
-			const HALF = Unified_Math.f32(SIDE / 2);
-			const I    = Unified_Math.f32(0.000008333);          // ← exact Bascom constant
+			const SIDE = 0.05;
+			const MASS = 0.02;
+			const DT = 0.0005;
+			const HALF = SIDE / 2;
+			const I    = 0.000008333;          // ← exact Bascom constant
 		
 			const NOISE_ANGLE  = 1.5 * Math.PI / 180;
 			const NOISE_OMEGA  = 0.8;
@@ -1619,9 +1808,9 @@ Click “Shuffle settings” or “Drop the dice” to start
 			const MAX_TIME = Math.max(3, SIM_TIME + noiseTime);
 		
 			// Materials
-			const [brd, bfd, bad] = DICE_MATERIALS[DICE_MAT];
-			const [brs, bfs, bas] = SURFACE_MATERIALS[SURF_MAT];
-		
+			const [bfd, brd, bad] = DICE_MATERIALS[DICE_MAT];
+			const [bfs, brs, bas] = SURFACE_MATERIALS[SURF_MAT];
+
 			const tempFactor  = 1.0 - (TEMP - 20) * 0.004;
 			const humidFactor = 1.0 + (HUMID - 40) * 0.006;
 		
@@ -1665,23 +1854,23 @@ Click “Shuffle settings” or “Drop the dice” to start
 				// Apply Gravitational Pull and Kinematic Position Integration using activeDT
 				// 1. Gravity
 				{
-					let tmp = Unified_Math.f32(G * activeDT);
-					state[4] = Unified_Math.f32(state[4] - tmp);
+					let tmp = G * activeDT;
+					state[4] = state[4] - tmp;
 				}
 				// 2. X
 				{
-					let tmp = Unified_Math.f32(state[3] * activeDT);
-					state[0] = Unified_Math.f32(state[0] + tmp);
+					let tmp = state[3] * activeDT;
+					state[0] = state[0] + tmp;
 				}
 				// 3. Y
 				{
-					let tmp = Unified_Math.f32(state[4] * activeDT);
-					state[1] = Unified_Math.f32(state[1] + tmp);
+					let tmp = state[4] * activeDT;
+					state[1] = state[1] + tmp;
 				}
 				// 4. Theta
 				{
-					let tmp = Unified_Math.f32(state[5] * activeDT);
-					state[2] = Unified_Math.f32(state[2] + tmp);
+					let tmp = state[5] * activeDT;
+					state[2] = state[2] + tmp;
 				}
 		
 				// Evaluate structural collisions checks safely
@@ -1690,19 +1879,15 @@ Click “Shuffle settings” or “Drop the dice” to start
 				}
 
 				// speed calculation also forced to f32
-				let speed = Unified_Math.f32(
-					Unified_Math.f32(Math.hypot(Unified_Math.f32(state[3]), Unified_Math.f32(state[4]))) +
-					Unified_Math.f32(Math.abs(Unified_Math.f32(state[5])) * SIDE)
-				);
-
+				let speed = Math.hypot(state[3], state[4]) + Math.abs(state[5] * SIDE);
 
 				//============================================================
 				// UPGRADED V1.2 HYBRID SLEEP OUT CHECK
 				//============================================================
 				// If the die center Y drops under the 1mm floor boundary zone 
 				// and total remaining energy drops below 0.05, put it to sleep!
-				if (state[1] < 0.026) {
-					if (speed < 0.05) {
+				if (state[1] < 0.05) {
+					if (speed < 0.07) {
 						break;
 					}
 				}
@@ -1783,7 +1968,7 @@ Click “Shuffle settings” or “Drop the dice” to start
 			
 						logEl.textContent =
 `Generating stream of ${seqAmount.toLocaleString()} results…
-Silent mode | Batch: ${BATCH_SIZE} | Update every: ${UPDATE_EVERY}
+Silent mode | Batch: ${BATCH_SIZE} | Update every: ${UPDATE_EVERY} | Simulator profile: ${ACTIVE_SIMULATOR_PROFILE}
 Random mode: ${randMode.value} | Noise mode: ${noiseMode.value} | TimerMs: ${currentTimerMs} | Counter: ${noisyCallCounter} 
 
 Progress : ${(i + 1).toLocaleString()} / ${seqAmount.toLocaleString()}  (${pct}%)
@@ -1808,15 +1993,16 @@ ${preview}
 `================================================
 STREAM GENERATED SUCCESSFULLY
 ================================================
-Sequence length : ${seqAmount.toLocaleString()}
-Label mode      : ${document.getElementById('labelMode').value}
-Batch size      : ${BATCH_SIZE}
-Update every    : ${UPDATE_EVERY}
-Random mode     : ${randMode.value}
-Noise mode      : ${noiseMode.value}
-TimerMs         : ${currentTimerMs}
-Counter         : ${noisyCallCounter} 
-Characters      : ${finalStream.length.toLocaleString()}
+Simulator profile: ${ACTIVE_SIMULATOR_PROFILE}
+Sequence length  : ${seqAmount.toLocaleString()}
+Label mode       : ${document.getElementById('labelMode').value}
+Batch size       : ${BATCH_SIZE}
+Update every     : ${UPDATE_EVERY}
+Random mode      : ${randMode.value}
+Noise mode       : ${noiseMode.value}
+TimerMs          : ${currentTimerMs}
+Counter          : ${noisyCallCounter} 
+Characters       : ${finalStream.length.toLocaleString()}
 ================================================
 ${finalStream}
 `;
