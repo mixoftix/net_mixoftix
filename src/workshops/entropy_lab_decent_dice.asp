@@ -1544,13 +1544,13 @@ Click “Shuffle settings” or “Drop the dice” to start
                 let activeDT;
                 if (zoomin_by_time && zoomin_by_dist) {
                     activeDT = DT_ZOOM_IN_SLOW;
-                    //log += `DT_ZOOM_IN_SLOW: ${DT_ZOOM_IN_SLOW},${Unified_Math.f32(RT_TO_STOP).toFixed(5)},${zoomin_by_time},${zoomin_by_dist},${Unified_Math.f32(remainingSim).toFixed(5)},${Unified_Math.f32(t).toFixed(5)},${Unified_Math.f32(state[1]).toFixed(5)}\n`;
+	                log += `JS_zoom_TD: `;
                 } else if (zoomin_by_time) {
                     activeDT = DT_ZOOM_IN_FAST;
-                    //log += `XT_ZOOM_IN_SLOW: ${DT_ZOOM_IN_SLOW},${Unified_Math.f32(RT_TO_STOP).toFixed(5)},${zoomin_by_time},${zoomin_by_dist},${Unified_Math.f32(remainingSim).toFixed(5)},${Unified_Math.f32(t).toFixed(5)},${Unified_Math.f32(state[1]).toFixed(5)}\n`;
+                    log += `JS_zoom_TX: `;
                 } else if (zoomin_by_dist) {
                     activeDT = DT_ZOOM_IN_SLOW;
-                    //log += `DX_ZOOM_IN_SLOW: ${DT_ZOOM_IN_SLOW},${Unified_Math.f32(RT_TO_STOP).toFixed(5)},${zoomin_by_time},${zoomin_by_dist},${Unified_Math.f32(remainingSim).toFixed(5)},${Unified_Math.f32(t).toFixed(5)},${Unified_Math.f32(state[1]).toFixed(5)}\n`;
+                    log += `JS_zoom_XD: `;
                 } else {
                     activeDT = DT_ZOOM_OUT;
                 }
@@ -1589,15 +1589,6 @@ Click “Shuffle settings” or “Drop the dice” to start
                 // ------------------------------------------------------------
                 if (activeDT !== DT_ZOOM_OUT) {
 
-					if (zoomin_by_time && zoomin_by_dist) {
-						activeDT = DT_ZOOM_IN_SLOW;
-	                    log += `JS_zoom_TD: `;
-					} else if (zoomin_by_time) {
-	                    log += `JS_zoom_TX: `;
-					} else if (zoomin_by_dist) {
-	                    log += `JS_zoom_XD: `;
-					} 
-
 					state[0] = Unified_Math.val(state[0]);   // x
 					state[1] = Unified_Math.val(state[1]);	// y
 					state[2] = Unified_Math.val(state[2]);	// th
@@ -1617,7 +1608,7 @@ Click “Shuffle settings” or “Drop the dice” to start
 						state[4] = Unified_Math.val(resState[4]);	// vy
 						state[5] = Unified_Math.val(resState[5]);	// om
 	
-			            log += `JS_titles:      Time,      X,      Y,   Theta,     Vx,      Vy,    Omega\n`;
+			            //log += `JS_titles:      Time,      X,      Y,   Theta,     Vx,      Vy,    Omega\n`;
 						log += `JS_impact+: ${t.toFixed(5)},${state[0].toFixed(5)},${state[1].toFixed(5)},${state[2].toFixed(5)},${state[3].toFixed(5)},${state[4].toFixed(5)},${state[5].toFixed(5)}\n`;
 					}
 
@@ -1644,12 +1635,14 @@ Click “Shuffle settings” or “Drop the dice” to start
                 let angular_v  = Unified_Math.abs(state[5]);
                 let rot_speed  = Unified_Math.mul(angular_v, SIDE);
                 let speed      = Unified_Math.add(linear_vel, rot_speed);
+                let groundBoundary = Unified_Math.add(HALF, Unified_Math.val(0.0005));
                 
                 // ============================================================
                 // UPGRADED V1.2 HYBRID SLEEP OUT CHECK (ATOMIC RESTRUCTURE)
                 // ============================================================
                 if (state[1] < Unified_Math.val(0.05)) {
-                    if (speed < Unified_Math.val(0.07)) {
+                    if (speed < Unified_Math.val(0.075)) {
+			            log += `JS_trigger: [sleep_out] / [speed] ${speed.toFixed(5)} < 0.075 / [Y] ${state[1].toFixed(5)} < 0.05\n`;
 			            log += `JS_titles:      Time,      X,      Y,   Theta,     Vx,      Vy,    Omega\n`;
 						log += `JS_sleep_out: ${t.toFixed(5)},${state[0].toFixed(5)},${state[1].toFixed(5)},${state[2].toFixed(5)},${state[3].toFixed(5)},${state[4].toFixed(5)},${state[5].toFixed(5)}\n`;
                         break;
@@ -1659,14 +1652,14 @@ Click “Shuffle settings” or “Drop the dice” to start
                 // ============================================================
                 // Settlement Criteria Evaluation Check (Standard Mode Fallback)
                 // ============================================================
-                let groundBoundary = Unified_Math.add(HALF, Unified_Math.val(0.01));
-                if (speed < Unified_Math.val(0.01) && state[1] < groundBoundary) {
+                if (state[1] < groundBoundary && speed < Unified_Math.val(0.2)) {
                     settled++;
+		            log += `JS_trigger: [settled ${settled} < 100] / [speed] ${speed.toFixed(5)} < 0.2 / [Y] ${state[1].toFixed(5)} < ${groundBoundary.toFixed(5)}\n`;
                     if (settled > 100) 
 					{
 			            log += `JS_titles:      Time,      X,      Y,   Theta,     Vx,      Vy,    Omega\n`;
 						log += `JS_settled: ${t.toFixed(5)},${state[0].toFixed(5)},${state[1].toFixed(5)},${state[2].toFixed(5)},${state[3].toFixed(5)},${state[4].toFixed(5)},${state[5].toFixed(5)}\n`;
-					break; 
+						break; 
 					}
                 } else {
                     settled = 0;
@@ -1677,9 +1670,6 @@ Click “Shuffle settings” or “Drop the dice” to start
                 // ------------------------------------------------------------
                 if (Look_Kinetic_Step == 1 && activeDT == DT_ZOOM_OUT) {
 	                log += `JS_zoom_out: ${t.toFixed(5)},${state[0].toFixed(5)},${state[1].toFixed(5)},${state[2].toFixed(5)},${state[3].toFixed(5)},${state[4].toFixed(5)},${state[5].toFixed(5)}\n`;
-
-					// Push a clean representation for historical drawing rendering paths
-					//history.push(Array.from(state));
                 }
                 
                 Look_Kinetic_Step++;
@@ -1887,7 +1877,7 @@ Click “Shuffle settings” or “Drop the dice” to start
 				// If the die center Y drops under the 1mm floor boundary zone 
 				// and total remaining energy drops below 0.05, put it to sleep!
 				if (state[1] < 0.05) {
-					if (speed < 0.07) {
+					if (speed < 0.075) {
 						break;
 					}
 				}
