@@ -111,6 +111,15 @@
 			</p>
         </section>
         <section class="content-box">
+            <h2>Warning</h2>
+            <p>
+				This tool is designed as a physically-influenced simulation for educational purposes and entropy research.
+				Although it runs 100% client-side in JavaScript inside the user's browser, it is always possible for the code 
+				to be manipulated via unauthorized access on the server side—therefore, you SHOULD NOT use its output to 
+				generate real cryptographic keys or Bitcoin wallets under any circumstances.
+            </p>
+        </section>
+        <section class="content-box">
             <h2>Disclaimer</h2>
             <p>
 				This tool is designed as a rich, physically-influenced entropy source.
