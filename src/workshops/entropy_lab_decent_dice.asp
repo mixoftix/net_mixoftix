@@ -101,16 +101,6 @@
 
     <main>
         <section class="content-box">
-            <h2>2D Rigid-body Dice with Material Physics</h2>
-            <p>
-                Physically-based 2D square die with restitution, friction, adhesion, temperature, humidity and altitude.
-                Timer-based noisy random, Dice/Hex label modes, and full exact-session import/export are supported.
-            </p>
-			<p>
-				<strong>Everything runs entirely inside your browser</strong> — no data is ever uploaded to a server.
-			</p>
-        </section>
-        <section class="content-box">
             <h2>Warning</h2>
             <p>
 				This tool is designed as a physically-influenced simulation for educational purposes and entropy research.
@@ -128,6 +118,16 @@
 				Users should move these outputs into stronger, well-reviewed systems and apply proper key derivation methods.
 				Use for high-stakes cryptography is entirely at the user’s own risk.
             </p>
+        </section>
+        <section class="content-box">
+            <h2>2D Rigid-body Dice with Material Physics</h2>
+            <p>
+                Physically-based 2D square die with restitution, friction, adhesion, temperature, humidity and altitude.
+                Timer-based noisy random, Dice/Hex label modes, and full exact-session import/export are supported.
+            </p>
+			<p>
+				<strong>Everything runs entirely inside your browser</strong> — no data is ever uploaded to a server.
+			</p>
         </section>
 		<section class="content-box">
 			<h2>License</h2>
