@@ -347,6 +347,19 @@
 		</section>
 		
 		<section class="content-box">
+			<h3>Why Are Some Whitening Options Labeled "Fake"?</h3>
+			<p>
+				Options such as <strong>Fake AES-CTR</strong> and <strong>Fake ChaCha</strong> are simplified
+				32-bit toy mixers—not real cryptographic ciphers. They are included to demonstrate a core limitation
+				of statistical testing: <strong>passing NIST SP 800-22 does not prove cryptographic security</strong>.
+			</p>
+			<p>
+				Even when seeded with <em>Very Poor</em> entropy, these lightweight mixers diffuse bits well enough to pass
+				every p-value threshold, yet an attacker could easily reverse their 32-bit internal state.
+			</p>
+		</section>
+
+		<section class="content-box">
 			<h3>Disclaimer</h3>
 			<p>
 				This is an educational implementation of the NIST SP 800-22 test suite.
@@ -386,26 +399,10 @@
                     </div>
 
                     <div class="input-container" style="justify-content:flex-start; margin-top:10px;">
-                        <label for="whiteningSelect">Whitening type:</label>
-                        <select id="whiteningSelect">
-                            <option value="none">= No Whitening (Raw Entropy)</option>
-                            <option value="periodic">! Periodic Pattern</option>
-                            <option value="lowentropy">! Low Entropy</option>
-                            <option value="weakhash">~ Hash-Counter (Weak)</option>
-                            <option value="prnghash">~ Hash-Counter (PRNG)</option>
-                            <option value="onebiased">~ Biased One (60%)</option>
-                            <option value="hiddenbiased">~ Biased Hidden</option>
-                            <option value="xorshift">~ XOR Shift</option>
-                            <option value="xorweak">* XOR Weak</option>
-                            <option value="fakeaes">~ Fake AES-CTR</option>
-                            <option value="fakechacha">* Fake ChaCha</option>
-                        </select>
-                    </div>
-                    <div class="input-container" style="justify-content:flex-start; margin-top:10px;">
 						<!-- generation amount -->
 						<label for="genAmount">Symbols:</label>
 						<input id="genAmount" type="number" min="1" value="1000" style="width:120px;">
-						<button id="generateBtn" class="control-btn primary">Generate Random Sequence</button>
+						<button id="generateBtn" class="control-btn primary">Generate Entropy Sequence</button>
                     </div>
 
                 </td>
@@ -413,11 +410,32 @@
             <tr>
                 <td colspan="2" style="text-align:left; padding:12px;">
 					<!-- textarea -->
-					<label for="bitsInput" id="sequenceLabel">Random sequence</label><br>
+					<label for="bitsInput" id="sequenceLabel">Raw entropy sequence</label><br>
 					<textarea id="bitsInput" placeholder="Paste your sequence here…"></textarea>					
-					<br>
+                </td>
+            </tr>
+
+            <tr>
+                <td colspan="2" style="text-align:left; padding:12px;">
+                    <div class="input-container" style="justify-content:flex-start; margin-top:10px;">
+                        <label for="whiteningSelect">Whitening type:</label>
+                        <select id="whiteningSelect">
+                            <option value="none">= No Whitening (Raw Entropy)</option>
+                            <option value="lowentropy">! Low Entropy</option>
+                            <option value="periodic">! Periodic Pattern</option>
+                            <option value="weakhash">~ Hash-Counter (Weak)</option>
+                            <option value="prnghash">~ Hash-Counter (PRNG)</option>
+                            <option value="onebiased">~ Biased One (60%)</option>
+                            <option value="hiddenbiased">~ Biased Hidden</option>
+                            <option value="xorshift">~ XOR Shift</option>
+                            <option value="xorweak">~ XOR Weak</option>
+                            <option value="fakeaes">* Fake AES-CTR</option>
+                            <option value="fakechacha">* Fake ChaCha</option>
+                        </select>
+                    </div>
+
 					<!-- textarea -->
-					<label for="bitsConverted" id="bitsConvertedLabel">Converted sequence</label><br>
+					<label for="bitsConverted" id="bitsConvertedLabel">Converted random sequence</label><br>
 					<textarea id="bitsConverted" placeholder=""></textarea>					
                 </td>
             </tr>
@@ -433,17 +451,18 @@
                 </td>
                 <td style="text-align:center; padding:12px;">
 					<!-- count display -->
-					<span class="pill"><strong id="bitCount">0</strong> symbols detected
-						<span id="bitDerived" style="opacity:0.7;"></span>
+					<span class="pill">Entropy: <strong id="bitCount">0</strong> symbols
+						<br>
+						<span id="bitDerived" style="opacity:0.8;"></span>
 					</span>
-                    <span class="pill">Timeout per test: <strong id="timeoutLabel">5 s</strong></span>
+                    <span class="pill">Timeout per test: <strong id="timeoutLabel">30 s</strong></span>
                 </td>
             </tr>
             <tr>
                 <td colspan="2" style="padding:12px;">
                     <div class="input-container">
 						<!-- buttons -->
-						<button id="analyzeBtn" class="control-btn primary">Evaluate Sequence</button>
+						<button id="analyzeBtn" class="control-btn primary">Evaluate Random Sequence</button>
                         <button id="clearBtn" class="control-btn">Clear</button>
                     </div>
                 </td>
@@ -500,7 +519,7 @@
         <!-- Acknowledgments -->
         <section class="content-box">
             <h3>Acknowledgments</h3>
-            <p>Special thanks to Grok for helping build this NIST RNG Test Suite teaching tool.</p>
+            <p>Special thanks to Grok and Gemini for helping build this NIST RNG Test Suite teaching tool.</p>
         </section>
     </main>
 
@@ -590,13 +609,13 @@
 			const ta   = document.getElementById("bitsInput");
 		
 			if (type === "bit") {
-				label.textContent = "Random sequence (Binary 0/1 only)";
+				label.textContent = "Raw entropy sequence (Binary 0/1 only)";
 				ta.placeholder = "Paste binary 0/1 string (e.g. 00110101…)";
 			} else if (type === "dice") {
-				label.textContent = "Random sequence (Dice faces 1-6 only)";
+				label.textContent = "Raw entropy sequence (Dice faces 1-6 only)";
 				ta.placeholder = "Paste dice faces (e.g. 351264…)";
 			} else {
-				label.textContent = "Random sequence (Hex 0-9A-F only)";
+				label.textContent = "Raw entropy sequence (Hex 0-9A-F only)";
 				ta.placeholder = "Paste hex string (e.g. A3F91C…)";
 			}
 			updateSymbolCount();
@@ -635,225 +654,216 @@
 		});
 
 
-		document.getElementById("generateBtn").addEventListener("click", async () => {
+		// --- Stage 1: Generate Raw Entropy Sequence (No Whitening Yet) ----------
+		document.getElementById("generateBtn").addEventListener("click", () => {
 			const amount = parseInt(document.getElementById("genAmount").value, 10) || 1000;
-			const sequenceType = getSequenceType();          // "bit" | "dice" | "hex"
-			const whiteningType = document.getElementById("whiteningSelect").value;
+			const sequenceType = getSequenceType(); // "bit" | "dice" | "hex"
 			const truncate = document.getElementById("truncateCheckbox").checked;
-		
+
 			clearAll();
-		
+
 			let target = amount;
 			if (truncate && target > 1_000_000) {
 				target = 1_000_000;
 				document.getElementById("genAmount").value = 1000000;
 			}
-		
-			let symbols = [];
-		
-			// ---------- Helper: produce exactly one symbol from a uint32 ----------
-			function symbolFromUint32(x) {
+
+			const symbols = [];
+			while (symbols.length < target) {
+				const x = (main_random() * 0xffffffff) >>> 0;
 				if (sequenceType === "bit") {
-					return (x & 1) ? "1" : "0";
+					symbols.push((x & 1) ? "1" : "0");
+				} else if (sequenceType === "dice") {
+					const v = x & 7;
+					if (v < 6) symbols.push(String(v + 1));
+				} else {
+					symbols.push((x & 0xf).toString(16).toUpperCase());
 				}
-				if (sequenceType === "dice") {
-					const v = x & 7;                 // 0..7
-					return (v < 6) ? String(v + 1) : symbolFromUint32((main_random() * 0xffffffff) >>> 0); // rare rejection
-				}
-				// hex
-				return (x & 0xf).toString(16).toUpperCase();
 			}
-		
-			// ---------- Whitening modes ----------
+
+			bitsInput.value = symbols.join("");
+			applyWhiteningPipeline();
+		});
+
+		// --- Stage 2: Convert Raw Entropy -> Apply Selected Whitening -> Bits ---
+		function applyWhiteningPipeline() {
+			const type = getSequenceType();
+			const rawSymbols = normalizeSymbols(bitsInput.value, type);
+			bitCountLabel.textContent = rawSymbols.length.toString();
+
+			const derived = document.getElementById("bitDerived");
+			if (!rawSymbols.length) {
+				bitsConverted.value = "";
+				derived.textContent = "";
+				return;
+			}
+
+			// Convert raw symbols (Bit, Dice, or Hex) into raw entropy bits
+			const rawBits = symbolsToBits(rawSymbols, type);
+			const n = rawBits.length;
+			const whiteningType = document.getElementById("whiteningSelect").value;
+
+			// Seed deterministic PRNG helper from the raw entropy bits themselves
+			// so whitening genuinely consumes the student's entropy sequence!
+			let entropySeed = 0x811c9dc5;
+			for (let i = 0; i < Math.min(n, 256); i++) {
+				entropySeed ^= rawBits.charCodeAt(i);
+				entropySeed = Math.imul(entropySeed, 0x01000193) >>> 0;
+			}
+			let stepCounter = 0;
+			function nextEntropyWord(index) {
+				// Mix 32-bit chunk of rawBits with seed so poor raw entropy degrades weak whiteners
+				let chunk = 0;
+				for (let k = 0; k < 32; k++) {
+					const bit = rawBits[(index * 32 + k) % n] === "1" ? 1 : 0;
+					chunk = (chunk << 1) | bit;
+				}
+				return (chunk ^ entropySeed) >>> 0;
+			}
+			function uniformFromEntropy() {
+				const w = nextEntropyWord(stepCounter++);
+				return mix32(w ^ stepCounter) / 0x100000000;
+			}
+
+			const outBits = new Array(n);
+
 			switch (whiteningType) {
-		
-				// 0. Direct / raw  (old generateDirectBits style)
+				// 0. No Whitening: pass raw entropy bits straight through
 				case "none": {
-					while (symbols.length < target) {
-						const x = (main_random() * 0xffffffff) >>> 0;
-						symbols.push(symbolFromUint32(x));
-					}
-					break;
+					bitsConverted.value = rawBits;
+					derived.textContent = ` ${n} random bits (raw)`;
+					return;
 				}
-		
-				// 1. Periodic Pattern
-				case "periodic": {
-					const pattern = [];
-					for (let i = 0; i < 12; i++) {
-						const x = (main_random() * 0xffffffff) >>> 0;
-						const v = (x >> i) & 1;
-						pattern.push(symbolFromUint32(v));
-					}
-					while (symbols.length < target) {
-						symbols.push(...pattern);
-					}
-					symbols.length = target;
-					break;
-				}
-		
-				// 2. Low Entropy – repeating a short block (original spirit)
+
+				// 1. Low Entropy: sticky Markov clumping driven by raw entropy transitions
 				case "lowentropy": {
-					// Generate one random 8-bit value (same as the old function)
-					const byte = (main_random() * 0xff) >>> 0;
-				
-					// Turn that byte into a short repeating pattern according to sequence type
-					const pattern = [];
-				
-					if (sequenceType === "bit") {
-						// Classic: repeat the 8 bits of the byte
-						for (let i = 7; i >= 0; i--) {
-							pattern.push(((byte >> i) & 1) ? "1" : "0");
+					let current = rawBits[0];
+					for (let i = 0; i < n; i++) {
+						// Flip only when 3 consecutive raw bits are all '1' (~12.5% flip rate)
+						if (i > 0 && rawBits[i] === "1" && rawBits[(i + 1) % n] === "1" && rawBits[(i + 2) % n] === "1") {
+							current = current === "1" ? "0" : "1";
 						}
+						outBits[i] = current;
 					}
-					else if (sequenceType === "dice") {
-						// Repeat 2–3 dice faces derived from the byte
-						pattern.push(String(((byte >> 0) & 7) % 6 + 1));
-						pattern.push(String(((byte >> 3) & 7) % 6 + 1));
-						pattern.push(String(((byte >> 5) & 7) % 6 + 1));
-					}
-					else { // hex
-						// Repeat two hex digits from the byte
-						pattern.push(((byte >> 4) & 0xf).toString(16).toUpperCase());
-						pattern.push((byte & 0xf).toString(16).toUpperCase());
-					}
-				
-					// Fill the whole stream by repeating the short pattern
-					while (symbols.length < target) {
-						symbols.push(...pattern);
-					}
-					symbols.length = target;
 					break;
 				}
-		
-				// 3. Weak Hash-Counter
+
+				// 2. Periodic Pattern: repeats the first 12 bits of the raw entropy sequence
+				case "periodic": {
+					const period = Math.min(12, n);
+					for (let i = 0; i < n; i++) {
+						outBits[i] = rawBits[i % period];
+					}
+					break;
+				}
+
+				// 3. Weak Hash-Counter: XORs raw bits with a shallow shifted counter
 				case "weakhash": {
-					let salt = (main_random() * 0xffffffff) >>> 0;
-					let counter = 0;
-					while (symbols.length < target) {
-						let v = ((counter * 0x45D9F3B) ^ (counter >>> 16) ^ salt) >>> 0;
-						symbols.push(symbolFromUint32(v));
-						counter++;
+					for (let i = 0; i < n; i++) {
+						const v = Math.imul((i ^ entropySeed) >>> 0, 0x45D9F3B) >>> 0;
+						const maskBit = (v >>> 16) & 1;
+						const rawBit = rawBits[i] === "1" ? 1 : 0;
+						outBits[i] = (rawBit ^ maskBit) ? "1" : "0";
 					}
 					break;
 				}
-		
-				// 4. Hash-Counter (classic)
+
+				// 4. Hash-Counter (PRNG): SplitMix-style counter XORed with raw entropy
 				case "prnghash": {
-					let salt = (main_random() * 0xffffffff) >>> 0;
-					let counter = 0;
-					while (symbols.length < target) {
-						let v = ((counter * 2654435761) ^ salt) >>> 0;
-						symbols.push(symbolFromUint32(v));
-						counter++;
+					let state = entropySeed;
+					for (let i = 0; i < n; i++) {
+						state = (state + 0x9E3779B9) >>> 0;
+						let z = Math.imul(state ^ (state >>> 16), 0x85EBCA6B) >>> 0;
+						z ^= z >>> 13;
+						const rawBit = rawBits[i] === "1" ? 1 : 0;
+						outBits[i] = (rawBit ^ (z & 1)) ? "1" : "0";
 					}
 					break;
 				}
-		
-				// 5. Biased (~60%)
+
+				// 5. Biased One (~60% ones): overrides raw bits with a ~60% biased stream
 				case "onebiased": {
-					let bias = 0.55 + (main_random() * 0.1 - 0.05);
-					while (symbols.length < target) {
-						const r = main_random();
-						const x = (main_random() * 0xffffffff) >>> 0;
-		
-						if (sequenceType === "bit") {
-							symbols.push(r < bias ? "1" : "0");
-						} else {
-							// still use the uint32 but force bias direction
-							symbols.push(symbolFromUint32(x));
-						}
+					const bias = 0.58 + (uniformFromEntropy() * 0.04);
+					for (let i = 0; i < n; i++) {
+						outBits[i] = (uniformFromEntropy() < bias) ? "1" : "0";
 					}
 					break;
 				}
-		
-				// 6. Hidden / drifting bias
+
+				// 6. Biased Hidden: 57% ones in first half, 43% ones in second half (50% global)
 				case "hiddenbiased": {
-					let bias = 0.50 + (main_random() * 0.1 - 0.05);
-					while (symbols.length < target) {
-						const r = main_random();
-						const x = (main_random() * 0xffffffff) >>> 0;
-		
-						if (sequenceType === "bit") {
-							symbols.push(r < bias ? "1" : "0");
-						} else {
-							symbols.push(symbolFromUint32(x));
-						}
-		
-		
-						bias += (main_random() * 0.0002 - 0.0001);
-						if (bias < 0.45) bias = 0.45;
-						if (bias > 0.55) bias = 0.55;
+					const half = Math.floor(n / 2);
+					for (let i = 0; i < n; i++) {
+						const bias = (i < half) ? 0.57 : 0.43;
+						outBits[i] = (uniformFromEntropy() < bias) ? "1" : "0";
 					}
 					break;
 				}
-		
-				// 7. XORShift
+
+				// 7. XOR Shift: 32-bit Xorshift seeded by raw entropy, XORed with raw bits
 				case "xorshift": {
-					let x = (main_random() * 0xffffffff) >>> 0;
-					while (symbols.length < target) {
+					let x = entropySeed || 0x12345678;
+					for (let i = 0; i < n; i++) {
 						x ^= x << 13;
 						x ^= x >>> 17;
 						x ^= x << 5;
 						x = x >>> 0;
-						symbols.push(symbolFromUint32(x));
+						const rawBit = rawBits[i] === "1" ? 1 : 0;
+						outBits[i] = (rawBit ^ (x & 1)) ? "1" : "0";
 					}
 					break;
 				}
-		
-				// 8. XOR of two weak streams
+
+				// 8. XOR Weak: XORs raw entropy bits with a 32-bit LCG stream
 				case "xorweak": {
-					let a = (main_random() * 0xffffffff) >>> 0;
-					let b = (main_random() * 0xffffffff) >>> 0;
-					while (symbols.length < target) {
-						a = (a * 1664525 + 1013904223) >>> 0;
-						b ^= b << 5; b ^= b >>> 7; b ^= b << 17;
-						const v = a ^ b;
-						symbols.push(symbolFromUint32(v));
+					let a = entropySeed;
+					for (let i = 0; i < n; i++) {
+						a = (Math.imul(a, 1664525) + 1013904223) >>> 0;
+						const rawBit = rawBits[i] === "1" ? 1 : 0;
+						outBits[i] = (rawBit ^ ((a >>> 15) & 1)) ? "1" : "0";
 					}
 					break;
 				}
-		
-				// 9. Fake AES-CTR
+
+				// 9. Fake AES-CTR: 2-round SPN keystream seeded by raw entropy
 				case "fakeaes": {
-					let key = (main_random() * 0xffffffff) >>> 0;
-					let counter = (main_random() * 0xffffffff) >>> 0;
-					while (symbols.length < target) {
-						let v = ((counter * 0x9E3779B9) ^ key) >>> 0;
-						symbols.push(symbolFromUint32(v));
-						counter++;
+					let key = entropySeed;
+					for (let i = 0; i < n; i++) {
+						let block = (i ^ key) >>> 0;
+						block = mix32(block);
+						block = ((block << 13) | (block >>> 19)) ^ key;
+						block = Math.imul(block, 0xC2B2AE35) >>> 0;
+						block ^= block >>> 16;
+						const rawBit = rawBits[i] === "1" ? 1 : 0;
+						outBits[i] = (rawBit ^ (block & 1)) ? "1" : "0";
 					}
 					break;
 				}
-		
-				// 10. Fake ChaCha
+
+				// 10. Fake ChaCha: ARX quarter-round loop seeded by raw entropy
 				case "fakechacha": {
-					let x = (main_random() * 0xffffffff) >>> 0;
-					let y = (main_random() * 0xffffffff) >>> 0;
-					while (symbols.length < target) {
+					let x = entropySeed;
+					let y = (entropySeed ^ 0xA5A5A5A5) >>> 0;
+					for (let i = 0; i < n; i++) {
 						x = (x + y) >>> 0;
 						y = (y ^ x) >>> 0;
 						x = (x << 7) | (x >>> 25);
-						symbols.push(symbolFromUint32(x));
+						const rawBit = rawBits[i] === "1" ? 1 : 0;
+						outBits[i] = (rawBit ^ (x & 1)) ? "1" : "0";
 					}
 					break;
 				}
-		
-				// Fallback
+
 				default: {
-					while (symbols.length < target) {
-						const x = (main_random() * 0xffffffff) >>> 0;
-						symbols.push(symbolFromUint32(x));
-					}
+					bitsConverted.value = rawBits;
+					derived.textContent = ` ${n} random bits`;
+					return;
 				}
 			}
-		
-			// Final safety cut
-			if (symbols.length > target) symbols.length = target;
-		
-			document.getElementById("bitsInput").value = symbols.join("");
-			updateSymbolCount();
-		});
 
+			bitsConverted.value = outBits.join("");
+			derived.textContent = ` ${outBits.length} random bits (${whiteningType})`;
+		}
 
 		// --- Helpers / RNGs ------------------------------------------------------
 		const startTime = performance.now();
@@ -862,64 +872,69 @@
 		let weakCounter = 0;
 
 		function veryPoorRandom() {
-			// Real elapsed time
+			// 1. Real elapsed time in milliseconds since page load
 			const currentTimerMs = performance.now() - startTime;
-
-			// counter increase
+		
+			// 2. Increment a 10-bit counter that wraps back to 0 every 1024 calls
 			veryPoorCounter++;
 			veryPoorCounter = veryPoorCounter & 0x3FF;
-
-			// Combine timestamp + counter in a predictable linear way
+		
+			// 3. Multiply elapsed time by the counter and truncate to a 32-bit integer
 			let v = (currentTimerMs * veryPoorCounter) >>> 0;
+		
+			// 4. Apply a minimal bit shift + XOR
 			v = ((v << 7) ^ (v >>> 9)) >>> 0;
-
-			// Guaranteed unsigned 32‑bit
-			v = v >>> 0;
-
-			// Guaranteed float in [0,1)
+		
+			// 5. Normalize to a float in [0, 1)
 			return v / 0x100000000;
 		}
+
 		function poorRandom() {
-			// Millisecond timestamp
+			// 1. Current Unix timestamp in integer milliseconds (coarser than performance.now())
 			const t = Date.now();
 
-			// A tiny counter that cycles every 1024 calls
+			// 2. Increment a 10-bit counter that wraps back to 0 every 1024 calls
 			poorCounter++;
 			poorCounter = poorCounter & 0x3FF;
 
-			// Combine timestamp + counter in a predictable linear way
+			// 3. Multiply the counter by the golden-ratio constant and XOR with the timestamp
 			let v = (t ^ (poorCounter * 0x9E3779B9)) >>> 0;
 
-			// Extremely weak "mixing"
+			// 4. Apply a single bit shift + XOR pass (too shallow for full avalanche diffusion)
 			v = ((v << 7) ^ (v >>> 9) ^ t) >>> 0;
 
-			// Guaranteed unsigned 32‑bit
+			// 5. Force unsigned 32-bit integer representation
 			v = v >>> 0;
 
-			// Convert to float in [0, 1)
+			// 6. Normalize to a float in [0, 1)
 			return v / 0x100000000;
 		}
-		function weakRandom() {
 
-			// Real elapsed time
+		function weakRandom() {
+			// 1. Real elapsed time in milliseconds since page load (remains static during fast loops)
 			const currentTimerMs = performance.now() - startTime;
-			// counter increase
+
+			// 2. Increment an unbounded 32-bit call counter (never wraps at 1024)
 			weakCounter++;
 
+			// 3. Avalanche-mix both the timestamp and counter independently into 32-bit words
 			let x = mix32(currentTimerMs);
 			let y = mix32(weakCounter);
 
+			// 4. Perform one Add-Rotate-XOR (ARX) round to entangle the two states
 			x = (x + y) >>> 0;
 			y = (y ^ x) >>> 0;
 			x = (x << 7) | (x >>> 25);
 
+			// 5. Re-mix both halves and XOR them into a single 32-bit output
 			const nx = mix32(x);
 			const ny = mix32(y);
-			const nv = (nx ^ ny) >>> 0;                    							// uint32
+			const nv = (nx ^ ny) >>> 0;
 
-			// Guaranteed float in [0,1)
+			// 6. Normalize to a float in [0, 1)
 			return nv / 0x100000000;
 		}
+
 		function simpleRandom() {
 			return Math.random();
 		}
@@ -962,25 +977,12 @@
 		}
 
 		// --- Helpers ------------------------------------------------------------
-		function updateSymbolCount() {
-			const type = getSequenceType();
-			const symbols = normalizeSymbols(bitsInput.value, type);
-			bitCountLabel.textContent = symbols.length.toString();
-		
-			const derived = document.getElementById("bitDerived");
-			if (type === "bit") {
-				derived.textContent = "";
-			} else {
-				const bits = symbolsToBits(symbols, type);
-				bitsConverted.value = bits;
-				derived.textContent = ` → ${bits.length} bits`;
-			}
-		}
 		function setProgress(percent, text, currentTestName) {
 			progressBarInner.style.width = `${percent}%`;
 			progressText.textContent = text || "";
 			currentTestLabel.textContent = currentTestName || "";
 		}
+
 		function resetResultsTable() {
 			/*
 			resultsBody.innerHTML = `
@@ -1047,7 +1049,7 @@
 		
 			resetResultsTable();
 			progressContainer.style.display = "block";
-			setProgress(0, "Initializing…", "");
+			setProgress(0, "Initializing..", "");
 		
 			const total = enabledTests.length;
 			let index = 0;
@@ -2441,9 +2443,28 @@
 			if (templateFail && fail("serial"))
 				addRow("NOTE", "Combined: Template and Serial failed — repeated short patterns detected.");
 		
-			// --- Final Verdict ---
+
+			// --- Final Verdict & Educational Notes ---
 			const failCount = Object.values(results).filter(r => r.status === "FAIL").length;
-		
+			
+			const whitening = document.getElementById("whiteningSelect").value;
+			const entropy = document.querySelector("input[name='entropyType']:checked").value;
+			const weakWhitening = ["fakeaes", "fakechacha", "prnghash", "xorshift"].includes(whitening);
+			const weakEntropy = ["verypoor", "poor", "weak"].includes(entropy);
+			
+			if (failCount === 0 && weakWhitening) {
+				addRow(
+					"NOTE",
+					"Statistical Illusion: This toy whitening function passed every NIST test, even though its tiny 32-bit state can be reversed by an attacker in seconds. NIST SP 800-22 checks statistical balance, not cryptographic security."
+				);
+			}
+			if (failCount === 0 && weakEntropy && whitening !== "none") {
+				addRow(
+					"NOTE",
+					"Entropy Masking: Your underlying entropy source is weak, yet the whitener masked its patterns. In real systems, whitening cannot create new entropy—it only hides predictability from statistical tests."
+				);
+			}
+			
 			if (failCount === 0)
 				addRow("VERDICT", "All applicable tests passed — sequence is consistent with randomness.");
 			else if (failCount <= 2)
@@ -2478,7 +2499,7 @@
 
 			if (name.endsWith(".txt")) {
 				const text = await file.text();
-				bits = normalizeBits(text);
+				bits = normalizeSymbols(text, getSequenceType());
 			} else {
 				// binary mode
 				const buffer = await file.arrayBuffer();
@@ -2504,29 +2525,48 @@
 			}
 
 			bitsInput.value = bits;
-			updateBitCount();
+			applyWhiteningPipeline();
+
 		});
+
+		function updateSymbolCount() {
+			applyWhiteningPipeline();
+		}
+
+		// Re-run whitening immediately whenever the student picks a different whitener
+		document.getElementById("whiteningSelect").addEventListener("change", () => {
+			clearAll();
+			applyWhiteningPipeline();
+		});
+
+		// Allow manual edits in Converted Random Sequence to update bit count
+		bitsConverted.addEventListener("input", () => {
+			bitsConverted.value = normalizeSymbols(bitsConverted.value, "bit");
+			clearAll();
+			const derived = document.getElementById("bitDerived");
+			derived.textContent = ` ${bitsConverted.value.length} random bits (manual)`;
+		});
+
+		// Evaluate ONLY the whitened random sequence (bitsConverted)
 		analyzeBtn.addEventListener("click", () => {
-			const type = getSequenceType();
-			const symbols = normalizeSymbols(bitsInput.value, type);
-		
-			if (!symbols.length) {
-				alert("Please paste a valid sequence or load a file first.");
+			const bits = normalizeSymbols(bitsConverted.value, "bit");
+
+			if (!bits.length) {
+				alert("Please generate or paste an entropy sequence first.");
 				return;
 			}
-		
-			const bits = symbolsToBits(symbols, type);   // ← convert once
+
 			bitsConverted.value = bits;
-		
 			analyzeBtn.disabled = true;
 			progressContainer.style.display = "block";
-			setProgress(0, "Preparing…", "");
-			//clearAll();
-		
+			setProgress(0, "Preparing..", "");
+
 			setTimeout(() => {
-				runTests(bits);          // all NIST tests still receive pure bits
+				runTests(bits); // All 15 NIST tests evaluate the whitened random bits
 			}, 80);
 		});
+
+
 		clearBtn.addEventListener("click", () => {
 			fileInput.value = "";
 			//updateBitCount();
