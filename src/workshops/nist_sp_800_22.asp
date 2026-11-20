@@ -449,9 +449,11 @@
                     <label for="fileInput">File:</label>
                     <input id="fileInput" type="file">
                 </td>
+
                 <td style="text-align:center; padding:12px;">
 					<!-- count display -->
-					<span class="pill">Entropy: <strong id="bitCount">0</strong> symbols
+					<span class="pill">
+						Entropy: <strong id="bitCount">0</strong> symbols <span id="entropyModeLabel"></span>
 						<br>
 						<span id="bitDerived" style="opacity:0.8;"></span>
 					</span>
@@ -558,6 +560,7 @@
 		const resultsBody = document.getElementById("resultsBody");
 		const timeoutLabel = document.getElementById("timeoutLabel");
 
+		let lastGeneratedEntropyLabel = ""; // Updates ONLY when "Generate Entropy Sequence" is clicked
 		let timeoutPerTestMs = 30000;          // 30 seconds (was 5 s)
 		let results_for_explain = {};
 
@@ -681,6 +684,11 @@
 				}
 			}
 
+			const entropyRadio = document.querySelector("input[name='entropyType']:checked");
+			lastGeneratedEntropyLabel = entropyRadio
+				? entropyRadio.parentElement.textContent.trim()
+				: "";
+			
 			bitsInput.value = symbols.join("");
 			applyWhiteningPipeline();
 		});
@@ -695,6 +703,7 @@
 			if (!rawSymbols.length) {
 				bitsConverted.value = "";
 				derived.textContent = "";
+				updatePillLabels();
 				return;
 			}
 
@@ -731,7 +740,8 @@
 				// 0. No Whitening: pass raw entropy bits straight through
 				case "none": {
 					bitsConverted.value = rawBits;
-					derived.textContent = ` ${n} random bits (raw)`;
+					//derived.textContent = ` ${n} random bits (raw)`;
+					updatePillLabels();
 					return;
 				}
 
@@ -856,13 +866,15 @@
 
 				default: {
 					bitsConverted.value = rawBits;
-					derived.textContent = ` ${n} random bits`;
+					//derived.textContent = ` ${n} random bits`;
+					updatePillLabels();
 					return;
 				}
 			}
 
 			bitsConverted.value = outBits.join("");
-			derived.textContent = ` ${outBits.length} random bits (${whiteningType})`;
+			//derived.textContent = ` ${outBits.length} random bits (${whiteningType})`;
+			updatePillLabels();
 		}
 
 		// --- Helpers / RNGs ------------------------------------------------------
@@ -2474,11 +2486,41 @@
 			else
 				addRow("VERDICT", "Severe failures — sequence is not random.");
 		}
+		
+		document.querySelectorAll("input[name='entropyType']").forEach(rb => {
+			rb.addEventListener("change", () => {
+				//updatePillLabels();
+			});
+		});
+		
+		function updatePillLabels() {
+			const type = getSequenceType();
+			const rawSymbols = normalizeSymbols(bitsInput.value, type);
+			const outBits = normalizeSymbols(bitsConverted.value, "bit");
+		
+			// Read live Whitening Mode label from the dropdown (strip leading =, !, ~, *)
+			const whiteningSelect = document.getElementById("whiteningSelect");
+			const rawOptionText = whiteningSelect.options[whiteningSelect.selectedIndex].text.trim();
+			const whiteningLabel = rawOptionText.replace(/^[=!~*]\s*/, "");
+		
+			bitCountLabel.textContent = rawSymbols.length.toString();
+			document.getElementById("entropyModeLabel").textContent = lastGeneratedEntropyLabel
+				? `(${lastGeneratedEntropyLabel})`
+				: "";
+		
+			const derived = document.getElementById("bitDerived");
+			if (!rawSymbols.length && !outBits.length) {
+				derived.textContent = "";
+			} else {
+				derived.textContent = `Random: ${outBits.length} symbols (${whiteningLabel})`;
+			}
+		}
 
 		// --- Event wiring -------------------------------------------------------
 		bitsInput.addEventListener("input", () => {
 			const type = getSequenceType();
 			bitsInput.value = normalizeSymbols(bitsInput.value, type);
+			lastGeneratedEntropyLabel = "Manual Input"; // <-- Add here
 		
 			clearAll();
 		
@@ -2488,6 +2530,7 @@
 			}
 			updateSymbolCount();
 		});
+
 		fileInput.addEventListener("change", async (e) => {
 			const file = e.target.files && e.target.files[0];
 			if (!file) return;
@@ -2524,9 +2567,9 @@
 				bits = bits.slice(0, 1_000_000);
 			}
 
+			lastGeneratedEntropyLabel = "File Upload"; // <-- Add here
 			bitsInput.value = bits;
 			applyWhiteningPipeline();
-
 		});
 
 		function updateSymbolCount() {
@@ -2544,7 +2587,7 @@
 			bitsConverted.value = normalizeSymbols(bitsConverted.value, "bit");
 			clearAll();
 			const derived = document.getElementById("bitDerived");
-			derived.textContent = ` ${bitsConverted.value.length} random bits (manual)`;
+			derived.textContent = `Random: ${bitsConverted.value.length} symbols (Manual Edit)`;
 		});
 
 		// Evaluate ONLY the whitened random sequence (bitsConverted)
